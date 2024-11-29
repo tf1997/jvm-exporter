@@ -1,0 +1,15 @@
+[package]
+name = "jvm-exporter"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+warp = "0.3"  # 用于创建 HTTP 服务
+prometheus = "0.13.4"
+log = "0.4.22"
+ # Prometheus 客户端库
+env_logger = "0.10"  # 用于日志记录
+futures = "0.3"  # 用于并发执行任务# Prometheus 客户端库

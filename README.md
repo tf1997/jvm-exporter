@@ -1,9 +1,12 @@
 # JVM Exporter
 
-JVM Exporter is a robust monitoring tool designed to operate as an independent process, providing detailed insights into
+JVM Exporter, as a prometheus exporter, is a robust monitoring tool designed to operate as an independent process, providing detailed insights into
 Java Virtual Machine (JVM) metrics. Unlike tools such as jmx-exporter, which require integration into Java applications
 to function, JVM Exporter runs separately. This design allows it to monitor multiple Java applications without modifying
-their execution environment or embedding code.
+their execution environment or embedding code. Importantly, JVM Exporter is specifically designed as an exporter for
+Prometheus, enabling seamless integration with Prometheus. This integration offers a powerful, unified monitoring and
+alerting solution, making it possible to effectively track and analyze JVM performance metrics within the Prometheus
+ecosystem.
 
 ## Key Features and Advantages
 
@@ -51,7 +54,7 @@ For convenience, precompiled binaries for Linux and Windows are provided.
    ```
 3. Move it to an appropriate location:
    ```bash
-   sudo mv jvm-exporter-linux /usr/local/bin/jvm-exporter
+   sudo mv jvm-exporter /usr/local/bin/jvm-exporter
    ```
 
 ## Usage
@@ -103,7 +106,7 @@ optimize your Java applications.
 
 **Q: How do I resolve a jps command failure?**
 
-A: Ensure that the JAVA_HOME environment variable is correctly set and that jps is accessible in your PATH.
+A: Ensure that the `JAVA_HOME` environment variable is correctly set and that jps is accessible in your PATH.
 
 **Q: What if the metrics are not updating?**
 

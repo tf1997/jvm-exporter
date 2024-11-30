@@ -12,4 +12,4 @@ prometheus = "0.13.4"
 log = "0.4.22"
  # Prometheus 客户端库
 env_logger = "0.10"  # 用于日志记录
-futures = "0.3"  # 用于并发执行任务# Prometheus 客户端库
+futures = "0.3"

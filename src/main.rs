@@ -1,7 +1,4 @@
-mod test;
-mod test2;
-
+mod jvm_export;
 fn main() {
-    // println!("Hello, world!");
-    test2::main()
+    jvm_export::main()
 }

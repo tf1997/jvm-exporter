@@ -1,22 +1,33 @@
 # JVM Exporter
 
-## Overview
+JVM Exporter is a robust monitoring tool designed to operate as an independent process, providing detailed insights into
+Java Virtual Machine (JVM) metrics. Unlike tools such as jmx-exporter, which require integration into Java applications
+to function, JVM Exporter runs separately. This design allows it to monitor multiple Java applications without modifying
+their execution environment or embedding code.
 
-The JVM Exporter is a Prometheus exporter designed to monitor Java Virtual Machine (JVM) metrics. It utilizes the
-`jstat` command to gather garbage collection statistics and exposes these metrics via an HTTP server, making them
-available for Prometheus scraping.
+## Key Features and Advantages
 
-## Features
+- **Standalone Operation**: Operates as a separate process, eliminating the need for embedding within or altering Java
+  applications.
+- **Customizable JAVA_HOME**: Allows users to specify the Java installation path, ensuring compatibility with different
+  Java environments.
+- **Flexible Display Options**: Users can choose to display either the full package path or just the class name of Java
+  processes, catering to different levels of detail requirements.
+- **Auto-Start Capability**: Can be configured to automatically start with the system using system services, providing
+  continuous monitoring without manual intervention.
 
-- Customizable `JAVA_HOME` to specify the Java installation path.
-- Option to display either the full package path or just the class name of Java processes.
-- Configurable to automatically start with the system using system services.
+## Why Choose JVM Exporter?
+
+JVM Exporter's unique standalone capability, combined with its flexibility and ease of use, makes it a superior choice
+for monitoring JVM metrics. It is particularly beneficial in scenarios where direct interaction with the application is
+not possible or desired. By providing detailed insights into JVM performance with minimal setup, JVM Exporter helps
+maintain and improve application performance and stability.
 
 ## Installation
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/jvm-exporter.git
+   git clone https://github.com/tf1997/jvm-exporter.git
    ```
 2. Build the project (ensure you have Rust installed):
     ```bash
@@ -32,7 +43,7 @@ For convenience, precompiled binaries for Linux and Windows are provided.
 
 1. Download the binary:
    ```bash
-   wget https://github.com/downloads/jvm-exporter
+   wget https://github.com/tf1997/jvm-exporter/releases/download/0.1/jvm-exporter
    ```
 2. Make it executable:
    ```bash

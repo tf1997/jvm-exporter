@@ -68,7 +68,7 @@ Start the JVM Exporter with configurable command-line arguments:
 ### Start the Service
 
    ```bash
-   ./jvm-exporter --auto-start
+   ./jvm-exporter
    ```
 
 ## View Metrics

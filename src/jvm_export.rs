@@ -90,7 +90,7 @@ pub(crate) async fn main() {
         }
     });
 
-    let addr = ([127, 0, 0, 1], 29090);
+    let addr = ([0, 0, 0, 0], 29090);
     let ip_addr = std::net::Ipv4Addr::from(addr.0);
 
     let server = warp::serve(metrics_route).bind((ip_addr, addr.1));
@@ -99,7 +99,7 @@ pub(crate) async fn main() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     println!("Server started successfully");
-    println!("Listening on http://{}:{}/metrics", ip_addr, addr.1);
+    println!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
 
     let _ = server_handle.await;
 
@@ -247,6 +247,9 @@ fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMa
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
+            if parts[1] == "jps" {
+                continue;
+            }
             let process_name = if full_path {
                 parts[1].to_string() // 使用全包路径
             } else {

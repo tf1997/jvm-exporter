@@ -7,11 +7,16 @@ use warp::Filter;
 use log::{warn, error};
 use clap::{App, Arg};
 use env_logger::Env;
+use sysinfo::{System};
 
 const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
+const EXCLUDED_PROCESSES: &[&str] = &["jps", "Jps"];
 
 struct Metrics {
-    metrics_map: HashMap<&'static str, GaugeVec>,
+    jstat_metrics_map: HashMap<&'static str, GaugeVec>,
+    cpu_usage: GaugeVec,
+    memory_usage: GaugeVec,
+    memory_usage_percentage: GaugeVec,
 }
 
 impl Metrics {
@@ -29,8 +34,32 @@ impl Metrics {
             registry.register(Box::new(metric.clone())).expect(&format!("Failed to register metric for {}", cmd));
             metrics_map.insert(cmd, metric);
         }
+        // Initialize CPU usage metric
+        let cpu_usage = GaugeVec::new(
+            prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
+            &["pid", "process_name"],
+        ).expect("Failed to create CPU usage GaugeVec");
+        registry.register(Box::new(cpu_usage.clone())).expect("Failed to register CPU usage metric");
 
-        Metrics { metrics_map }
+        // Initialize Memory usage metric
+        let memory_usage = GaugeVec::new(
+            prometheus::Opts::new("process_memory_usage", "Memory usage (in bytes) of the process"),
+            &["pid", "process_name"],
+        ).expect("Failed to create Memory usage GaugeVec");
+        registry.register(Box::new(memory_usage.clone())).expect("Failed to register Memory usage metric");
+
+        let memory_usage_percentage = GaugeVec::new(
+            prometheus::Opts::new("process_memory_usage_percentage", "Memory usage percentage of the process"),
+            &["pid", "process_name"],
+        ).expect("Failed to create Memory usage percentage GaugeVec");
+        registry.register(Box::new(memory_usage_percentage.clone())).expect("Failed to register Memory usage percentage metric");
+
+        Metrics {
+            jstat_metrics_map: metrics_map,
+            cpu_usage,
+            memory_usage,
+            memory_usage_percentage,
+        }
     }
 }
 
@@ -135,7 +164,10 @@ async fn update_metrics(
     full_path: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let processes = get_java_processes(java_home, full_path)?;
-
+    // Update CPU and Memory metrics
+    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &processes).await {
+        error!("Failed to update CPU and memory metrics: {}", e);
+    }
     let tasks: Vec<_> = processes
         .into_iter()
         .flat_map(|(pid, process_name)| {
@@ -149,7 +181,7 @@ async fn update_metrics(
                 let process_name = process_name.clone();
 
                 tokio::spawn(async move {
-                    if let Some(metric) = metrics.metrics_map.get(command) {
+                    if let Some(metric) = metrics.jstat_metrics_map.get(command) {
                         if let Err(err) = fetch_and_update_jstat(&pid, &process_name, command, metric, java_home.as_deref()).await {
                             warn!("Failed to update {} metrics for PID {} ({}): {}", command, pid, process_name, err);
                         }
@@ -215,9 +247,57 @@ async fn fetch_and_update_jstat(
                 .set(parsed_value);
         } else {
             warn!(
-                "Failed to parse value for {}: {} in PID {}",
-                header, value, pid
+                "Failed to parse value for {}: {} in PID {} and Process_name {}",
+                header, value, pid, process_name
             );
+        }
+    }
+
+    Ok(())
+}
+
+async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut system = System::new_all();
+    system.refresh_all();
+    let total_memory_kb = system.total_memory() as f64;
+
+    for (pid_str, process_name) in processes {
+        // 检查进程名称是否在排除列表中（忽略大小写）
+        // 提取类名（最后一部分）
+        let class_name = process_name
+            .split('.')
+            .last()
+            .unwrap_or(process_name);
+
+        // 检查类名是否在排除列表中（忽略大小写）
+        if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+            warn!("Excluding process PID {}: {}", pid_str, class_name);
+            continue; // 跳过此进程
+        }
+
+        if let Ok(pid) = pid_str.parse::<usize>() {
+            if let Some(process) = system.process(sysinfo::Pid::from(pid)) {
+                // Update CPU usage
+                metrics.cpu_usage
+                    .with_label_values(&[pid_str, process_name])
+                    .set(process.cpu_usage() as f64);
+
+                // Update Memory usage (in bytes)
+                metrics.memory_usage
+                    .with_label_values(&[pid_str, process_name])
+                    .set(process.memory() as f64 * 1024.0); // process.memory() returns in KB
+
+                let process_memory_kb = process.memory() as f64;
+                let memory_usage_percentage = if total_memory_kb > 0.0 {
+                    (process_memory_kb / total_memory_kb) * 100.0
+                } else {
+                    0.0
+                };
+
+                metrics.memory_usage_percentage
+                    .with_label_values(&[pid_str, process_name])
+                    .set(memory_usage_percentage);
+            }
         }
     }
 
@@ -247,14 +327,24 @@ fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMa
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
-            if parts[1] == "jps" {
+            let process_name_original = parts[1];
+            // 提取类名（路径的最后一部分）
+            let class_name = process_name_original
+                .split('.')
+                .last()
+                .unwrap_or(process_name_original);
+
+            // 检查类名是否在排除列表中
+            if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
                 continue;
             }
+
             let process_name = if full_path {
-                parts[1].to_string() // 使用全包路径
+                process_name_original.to_string() // 使用全包路径
             } else {
-                parts[1].split('.').last().unwrap_or(parts[1]).to_string() // 只使用类名
+                class_name.to_string() // 只使用类名
             };
+
             processes.insert(parts[0].to_string(), process_name);
         }
     }

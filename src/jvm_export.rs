@@ -10,7 +10,7 @@ use env_logger::Env;
 use sysinfo::{System};
 
 const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
-const EXCLUDED_PROCESSES: &[&str] = &["jps", "Jps"];
+const EXCLUDED_PROCESSES: &[&str] = &["jps"];
 
 struct Metrics {
     jstat_metrics_map: HashMap<&'static str, GaugeVec>,
@@ -27,7 +27,7 @@ impl Metrics {
             let metric = GaugeVec::new(
                 prometheus::Opts::new(
                     format!("jstat_{}_metrics", &cmd[1..]), // 去掉前导的 '-'
-                    format!("Metrics from jstat {}", cmd)
+                    format!("Metrics from jstat {}", cmd),
                 ),
                 &["pid", "process_name", "metric_name"],
             ).expect(&format!("Failed to create GaugeVec for command {}", cmd));
@@ -241,16 +241,24 @@ async fn fetch_and_update_jstat(
     }
 
     for (header, value) in headers.iter().zip(values.iter()) {
-        if let Ok(parsed_value) = value.parse::<f64>() {
-            jstat_metrics
-                .with_label_values(&[pid, process_name, header])
-                .set(parsed_value);
+        let parsed_value = if *value == "-" {
+            0.0
         } else {
-            warn!(
-                "Failed to parse value for {}: {} in PID {} and Process_name {}",
-                header, value, pid, process_name
-            );
-        }
+            match value.parse::<f64>() {
+                Ok(v) => v,
+                Err(_) => {
+                    warn!(
+                       "Failed to parse value for {}: {} in PID {} and Process_name {}",
+                       header, value, pid, process_name
+                   );
+                    continue;
+                }
+            }
+        };
+
+        jstat_metrics
+            .with_label_values(&[pid, process_name, header])
+            .set(parsed_value);
     }
 
     Ok(())

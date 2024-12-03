@@ -1,16 +1,21 @@
 use prometheus::{Encoder, GaugeVec, Registry};
 use std::collections::HashMap;
 use std::io::Write;
-use std::process::Command;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use warp::Filter;
 use log::{warn, error};
 use clap::{App, Arg};
 use env_logger::Env;
-use sysinfo::{System};
+use sysinfo::{System, Process, Pid};
+use tokio::process::Command;
+use tokio::time::{self, Duration};
+use futures::future::join_all;
 
 const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
-const EXCLUDED_PROCESSES: &[&str] = &["jps", "Jps"];
+const EXCLUDED_PROCESSES: &[&str] = &["jps"];
+const METRICS_UPDATE_INTERVAL: Duration = Duration::from_secs(5);
+const MAX_CONCURRENT_TASKS: usize = 10; // Maximum number of concurrent tasks
 
 struct Metrics {
     jstat_metrics_map: HashMap<&'static str, GaugeVec>,
@@ -26,14 +31,15 @@ impl Metrics {
         for &cmd in JSTAT_COMMANDS {
             let metric = GaugeVec::new(
                 prometheus::Opts::new(
-                    format!("jstat_{}_metrics", &cmd[1..]), // 去掉前导的 '-'
-                    format!("Metrics from jstat {}", cmd)
+                    &format!("jstat_{}_metrics", &cmd[1..]), // Remove the leading '-'
+                    &format!("Metrics from jstat {}", cmd)
                 ),
                 &["pid", "process_name", "metric_name"],
             ).expect(&format!("Failed to create GaugeVec for command {}", cmd));
             registry.register(Box::new(metric.clone())).expect(&format!("Failed to register metric for {}", cmd));
             metrics_map.insert(cmd, metric);
         }
+
         // Initialize CPU usage metric
         let cpu_usage = GaugeVec::new(
             prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
@@ -41,7 +47,7 @@ impl Metrics {
         ).expect("Failed to create CPU usage GaugeVec");
         registry.register(Box::new(cpu_usage.clone())).expect("Failed to register CPU usage metric");
 
-        // Initialize Memory usage metric
+        // Initialize memory usage metric
         let memory_usage = GaugeVec::new(
             prometheus::Opts::new("process_memory_usage", "Memory usage (in bytes) of the process"),
             &["pid", "process_name"],
@@ -61,6 +67,13 @@ impl Metrics {
             memory_usage_percentage,
         }
     }
+}
+
+struct AppState {
+    metrics: Arc<Metrics>,
+    registry: Arc<Registry>,
+    java_home: Arc<Option<String>>,
+    full_path: bool,
 }
 
 #[tokio::main]
@@ -98,106 +111,145 @@ pub(crate) async fn main() {
     let registry = Arc::new(prometheus::Registry::new());
     let metrics = Arc::new(Metrics::new(&registry));
 
-    // 封装共享数据到 Arc
+    // Wrap shared data in Arc
     let java_home = Arc::new(java_home);
 
-    let metrics_route = warp::path("metrics").and_then({
-        let metrics = Arc::clone(&metrics);
-        let registry = Arc::clone(&registry);
-        let java_home = Arc::clone(&java_home);
-        let full_path = full_path;
+    let state = Arc::new(AppState {
+        metrics: Arc::clone(&metrics),
+        registry: Arc::clone(&registry),
+        java_home: Arc::clone(&java_home),
+        full_path,
+    });
 
-        move || {
-            let metrics = Arc::clone(&metrics);
-            let registry = Arc::clone(&registry);
-            let java_home = java_home.clone();
-            let full_path = full_path;
-
-            async move {
-                handle_metrics(metrics, registry, java_home, full_path).await
+    // Start background task to periodically update metrics
+    let state_clone = Arc::clone(&state);
+    tokio::spawn(async move {
+        let mut interval = time::interval(METRICS_UPDATE_INTERVAL);
+        loop {
+            interval.tick().await;
+            if let Err(e) = update_metrics_background(&state_clone).await {
+                error!("Failed to update metrics in background: {}", e);
             }
         }
     });
 
+    let metrics_route = warp::path("metrics").map(move || {
+        let registry = Arc::clone(&state.registry);
+        let encoder = prometheus::TextEncoder::new();
+        let metric_families = registry.gather();
+        let mut buffer = Vec::new();
+        encoder.encode(&metric_families, &mut buffer).expect("Failed to encode metrics");
+
+        warp::http::Response::builder()
+            .header("Content-Type", encoder.format_type())
+            .body(String::from_utf8(buffer).expect("Failed to convert buffer to String"))
+    });
+
     let addr = ([0, 0, 0, 0], 29090);
-    let ip_addr = std::net::Ipv4Addr::from(addr.0);
-
-    let server = warp::serve(metrics_route).bind((ip_addr, addr.1));
-    let server_handle = tokio::spawn(server);
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
     println!("Server started successfully");
-    println!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
+    println!("Listening on http://127.0.0.1:{}/metrics", addr.1);
 
-    let _ = server_handle.await;
-
-    tokio::signal::ctrl_c().await.ok();
+    warp::serve(metrics_route).run(addr).await;
 }
 
-// 异步处理函数
-async fn handle_metrics(
-    metrics: Arc<Metrics>,
-    registry: Arc<prometheus::Registry>,
-    java_home: Arc<Option<String>>,
-    full_path: bool,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    if let Err(err) = update_metrics(metrics.clone(), java_home.as_deref(), full_path).await {
-        error!("Failed to update metrics: {}", err);
-    }
-
-    let mut buffer = Vec::new();
-    let encoder = prometheus::TextEncoder::new();
-    let metric_families = registry.gather();
-    encoder.encode(&metric_families, &mut buffer).expect("Failed to encode metrics");
-
-    let response = warp::http::Response::builder()
-        .header("Content-Type", encoder.format_type())
-        .body(String::from_utf8(buffer).expect("Failed to convert buffer to String"));
-    Ok(response)
-}
-
-// 更新所有指标
-async fn update_metrics(
-    metrics: Arc<Metrics>,
-    java_home: Option<&str>,
-    full_path: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let processes = get_java_processes(java_home, full_path)?;
-    // Update CPU and Memory metrics
-    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &processes).await {
+// Background metrics update function
+async fn update_metrics_background(state: &Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
+    let processes = get_java_processes(state.java_home.as_deref(), state.full_path).await?;
+    // Update CPU and memory metrics
+    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&state.metrics), &processes).await {
         error!("Failed to update CPU and memory metrics: {}", e);
     }
-    let tasks: Vec<_> = processes
-        .into_iter()
-        .flat_map(|(pid, process_name)| {
-            let metrics = Arc::clone(&metrics);
-            let java_home = java_home.map(|s| s.to_string());
 
-            JSTAT_COMMANDS.iter().map(move |&command| {
-                let metrics = Arc::clone(&metrics);
-                let java_home = java_home.clone();
+    let mut tasks = Vec::new();
+
+    for (pid, process_name) in &processes {
+        for &command in JSTAT_COMMANDS {
+            if let Some(metric) = state.metrics.jstat_metrics_map.get(command) {
                 let pid = pid.clone();
                 let process_name = process_name.clone();
+                let command = command.clone();
+                let metric = metric.clone();
+                let java_home = Arc::clone(&state.java_home);
 
-                tokio::spawn(async move {
-                    if let Some(metric) = metrics.jstat_metrics_map.get(command) {
-                        if let Err(err) = fetch_and_update_jstat(&pid, &process_name, command, metric, java_home.as_deref()).await {
-                            warn!("Failed to update {} metrics for PID {} ({}): {}", command, pid, process_name, err);
-                        }
+                let task = tokio::spawn(async move {
+                    if let Err(err) = fetch_and_update_jstat(&pid, &process_name, command, &metric, java_home.as_deref()).await {
+                        warn!("Failed to update jstat metrics for PID {} ({}): {}", pid, process_name, err);
                     }
-                })
-            })
-        })
-        .collect();
+                });
 
-    // 等待所有任务完成
-    futures::future::join_all(tasks).await;
+                tasks.push(task);
+            }
+        }
+    }
+
+    // Limit the number of concurrent tasks
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_TASKS));
+    let mut limited_tasks = Vec::new();
+
+    for task in tasks {
+        let permit = Arc::clone(&semaphore);
+        limited_tasks.push(tokio::spawn(async move {
+            let _permit = permit.acquire().await;
+            if let Err(e) = task.await {
+                warn!("Task failed: {}", e);
+            }
+        }));
+    }
+
+    // Wait for all tasks to complete
+    join_all(limited_tasks).await;
 
     Ok(())
 }
 
-// 通用的 fetch_and_update_jstat 函数
+// Asynchronous function to update CPU and memory metrics
+async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut system = System::new_all();
+    system.refresh_all();
+    let total_memory_kb = system.total_memory() as f64;
+
+    for (pid_str, process_name) in processes {
+        // Extract class name (last part)
+        let class_name = process_name
+            .split('.')
+            .last()
+            .unwrap_or(process_name);
+
+        // Check if the class name is in the excluded list (case-insensitive)
+        if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+            warn!("Excluding process PID {}: {}", pid_str, class_name);
+            continue; // Skip this process
+        }
+
+        if let Ok(pid) = pid_str.parse::<Pid>() {
+            if let Some(process) = system.process(pid) {
+                // Update CPU usage
+                metrics.cpu_usage
+                    .with_label_values(&[pid_str, process_name])
+                    .set(process.cpu_usage() as f64);
+
+                // Update Memory usage (in bytes)
+                metrics.memory_usage
+                    .with_label_values(&[pid_str, process_name])
+                    .set(process.memory() as f64 * 1024.0); // process.memory() returns KB
+
+                let process_memory_kb = process.memory() as f64;
+                let memory_usage_percentage = if total_memory_kb > 0.0 {
+                    (process_memory_kb / total_memory_kb) * 100.0
+                } else {
+                    0.0
+                };
+
+                metrics.memory_usage_percentage
+                    .with_label_values(&[pid_str, process_name])
+                    .set(memory_usage_percentage);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn fetch_and_update_jstat(
     pid: &String,
     process_name: &String,
@@ -213,7 +265,7 @@ async fn fetch_and_update_jstat(
         cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
     }
 
-    let output = cmd.output()?;
+    let output = cmd.output().await?;
 
     if !output.status.success() {
         return Err(format!(
@@ -241,77 +293,40 @@ async fn fetch_and_update_jstat(
     }
 
     for (header, value) in headers.iter().zip(values.iter()) {
-        if let Ok(parsed_value) = value.parse::<f64>() {
-            jstat_metrics
-                .with_label_values(&[pid, process_name, header])
-                .set(parsed_value);
+        let parsed_value = if *value == "-" {
+            // Handle special case for S0 value
+            0.0
         } else {
-            warn!(
-                "Failed to parse value for {}: {} in PID {} and Process_name {}",
-                header, value, pid, process_name
-            );
-        }
-    }
-
-    Ok(())
-}
-
-async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut system = System::new_all();
-    system.refresh_all();
-    let total_memory_kb = system.total_memory() as f64;
-
-    for (pid_str, process_name) in processes {
-        // 检查进程名称是否在排除列表中（忽略大小写）
-        // 提取类名（最后一部分）
-        let class_name = process_name
-            .split('.')
-            .last()
-            .unwrap_or(process_name);
-
-        // 检查类名是否在排除列表中（忽略大小写）
-        if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
-            warn!("Excluding process PID {}: {}", pid_str, class_name);
-            continue; // 跳过此进程
-        }
-
-        if let Ok(pid) = pid_str.parse::<usize>() {
-            if let Some(process) = system.process(sysinfo::Pid::from(pid)) {
-                // Update CPU usage
-                metrics.cpu_usage
-                    .with_label_values(&[pid_str, process_name])
-                    .set(process.cpu_usage() as f64);
-
-                // Update Memory usage (in bytes)
-                metrics.memory_usage
-                    .with_label_values(&[pid_str, process_name])
-                    .set(process.memory() as f64 * 1024.0); // process.memory() returns in KB
-
-                let process_memory_kb = process.memory() as f64;
-                let memory_usage_percentage = if total_memory_kb > 0.0 {
-                    (process_memory_kb / total_memory_kb) * 100.0
-                } else {
-                    0.0
-                };
-
-                metrics.memory_usage_percentage
-                    .with_label_values(&[pid_str, process_name])
-                    .set(memory_usage_percentage);
+            match value.parse::<f64>() {
+                Ok(v) => v,
+                Err(_) => {
+                    warn!(
+                       "Failed to parse value for {}: {} in PID {} and Process_name {}",
+                       header, value, pid, process_name
+                   );
+                    continue;
+                }
             }
-        }
+        };
+
+        jstat_metrics
+            .with_label_values(&[pid, process_name, header])
+            .set(parsed_value);
     }
 
     Ok(())
 }
 
-// 获取 Java 进程
-fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+async fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut command = Command::new("jps");
     command.arg("-l");
 
-    merge_java_home(java_home, &mut command)?;
+    if let Some(jh) = java_home {
+        command.env("JAVA_HOME", jh);
+        command.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+    }
 
-    let output = command.output()?;
+    let output = command.output().await?;
 
     if !output.status.success() {
         return Err(format!(
@@ -323,26 +338,26 @@ fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMa
     let stdout = String::from_utf8(output.stdout)?;
     let mut processes = HashMap::new();
 
-    // 解析 jps 输出，格式类似于: "12345 some.package.MainClass"
+    // Parse jps output, format similar to: "12345 some.package.MainClass"
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let process_name_original = parts[1];
-            // 提取类名（路径的最后一部分）
+            // Extract class name (last part of the path)
             let class_name = process_name_original
                 .split('.')
                 .last()
                 .unwrap_or(process_name_original);
 
-            // 检查类名是否在排除列表中
+            // Check if the class name is in the excluded list
             if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
                 continue;
             }
 
             let process_name = if full_path {
-                process_name_original.to_string() // 使用全包路径
+                process_name_original.to_string() // Use full package path
             } else {
-                class_name.to_string() // 只使用类名
+                class_name.to_string() // Use only class name
             };
 
             processes.insert(parts[0].to_string(), process_name);
@@ -352,16 +367,7 @@ fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMa
     Ok(processes)
 }
 
-// 合并 JAVA_HOME 到命令环境
-fn merge_java_home(java_home: Option<&str>, command: &mut Command) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(jh) = java_home {
-        command.env("JAVA_HOME", jh);
-        command.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
-    }
-    Ok(())
-}
-
-// 配置开机自启为 systemd 服务
+// Configure auto-start as a systemd service
 fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/jvm-exporter.service";
 
@@ -370,19 +376,21 @@ Description=JVM Exporter Service
 
 [Service]
 ExecStart=/usr/local/bin/jvm-exporter
+Restart=always
 
 [Install]
-WantedBy=multi-user.target".to_string();
+WantedBy=multi-user.target
+".to_string();
 
     let mut file = std::fs::File::create(service_path)?;
     file.write_all(service_content.as_bytes())?;
 
-    // 通知 systemd 重新加载配置
+    // Notify systemd to reload configurations
     std::process::Command::new("systemctl")
         .args(&["daemon-reload"])
         .output()?;
 
-    // 启用服务
+    // Enable the service
     std::process::Command::new("systemctl")
         .args(&["enable", "jvm-exporter.service"])
         .output()?;

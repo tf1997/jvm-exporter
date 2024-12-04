@@ -293,7 +293,7 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
                 // Update Memory usage (in bytes)
                 metrics.memory_usage
                     .with_label_values(&[pid_str, process_name])
-                    .set(process.memory() as f64 * 1024.0); // process.memory() returns in KB
+                    .set(process.memory() as f64); // process.memory() returns in byte
 
                 let process_memory_kb = process.memory() as f64;
                 let memory_usage_percentage = if total_memory_kb > 0.0 {

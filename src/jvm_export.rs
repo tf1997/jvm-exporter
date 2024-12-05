@@ -1,13 +1,14 @@
 use prometheus::{Encoder, GaugeVec, Registry};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::process::Command;
+use tokio::process::Command;
 use std::sync::Arc;
 use warp::Filter;
-use log::{warn, error};
+use log::{warn, error, info};
 use clap::{App, Arg};
 use env_logger::Env;
 use sysinfo::{System};
+use tokio::sync::Mutex;
 
 const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
 const EXCLUDED_PROCESSES: &[&str] = &["jps"];
@@ -17,6 +18,8 @@ struct Metrics {
     cpu_usage: GaugeVec,
     memory_usage: GaugeVec,
     memory_usage_percentage: GaugeVec,
+    active_pids: Mutex<HashMap<String, String>>,
+    jstat_labels: Mutex<HashMap<(&'static str, String, String), HashSet<String>>>,
 }
 
 impl Metrics {
@@ -59,6 +62,8 @@ impl Metrics {
             cpu_usage,
             memory_usage,
             memory_usage_percentage,
+            active_pids: Mutex::new(HashMap::new()),
+            jstat_labels: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -130,9 +135,16 @@ pub(crate) async fn main() {
     println!("Server started successfully");
     println!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
 
-    let _ = server_handle.await;
-
-    tokio::signal::ctrl_c().await.ok();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("Received Ctrl+C, shutting down.");
+        },
+        res = server_handle => {
+            if let Err(e) = res {
+                eprintln!("Server error: {}", e);
+            }
+        },
+    }
 }
 
 // 异步处理函数
@@ -163,7 +175,63 @@ async fn update_metrics(
     java_home: Option<&str>,
     full_path: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let processes = get_java_processes(java_home, full_path)?;
+    let processes = get_java_processes(java_home, full_path).await?;
+    let current_pids: HashMap<String, String> = processes.clone();
+    info!("获取到 {} 个 Java 进程", current_pids.len());
+
+    // 第一步：确定需要移除的 PID 列表
+    let removed_pids: Vec<(String, String)> = {
+        let active_pids = metrics.active_pids.lock().await;
+        active_pids
+            .iter()
+            .filter(|(pid, _)| !current_pids.contains_key(*pid))
+            .map(|(pid, pname)| (pid.clone(), pname.clone()))
+            .collect()
+    };
+    info!("找到 {} 个需要移除的 PID", removed_pids.len());
+
+    // 第二步：移除 active_pids 中的 PID
+    if !removed_pids.is_empty() {
+        let mut active_pids = metrics.active_pids.lock().await;
+        for (pid, _) in &removed_pids {
+            active_pids.remove(pid);
+        }
+        info!("已移除 active_pids 中的 PID");
+    }
+
+    // 第三步：移除 jstat_labels 和相关指标
+    if !removed_pids.is_empty() {
+        let mut jstat_labels = metrics.jstat_labels.lock().await;
+        for (pid, process_name) in &removed_pids {
+            // 移除 CPU 和 Memory 指标
+            metrics.cpu_usage.remove_label_values(&[pid, process_name]);
+            metrics.memory_usage.remove_label_values(&[pid, process_name]);
+            metrics.memory_usage_percentage.remove_label_values(&[pid, process_name]);
+
+            // 动态获取并移除 jstat 指标
+            for &command in JSTAT_COMMANDS.iter() {
+                let key = (command, pid.clone(), process_name.clone());
+                if let Some(metric_names) = jstat_labels.get(&key) {
+                    if let Some(metric) = metrics.jstat_metrics_map.get(command) {
+                        for metric_name in metric_names.iter() {
+                            metric.remove_label_values(&[pid, process_name, metric_name]);
+                        }
+                    }
+                }
+                // 移除记录的 metric_names
+                jstat_labels.remove(&key);
+            }
+        }
+        info!("已移除 jstat_labels 中的指标");
+    }
+
+    // 更新活跃 PID 列表
+    {
+        let mut active_pids = metrics.active_pids.lock().await;
+        *active_pids = current_pids.clone();
+        info!("已更新 active_pids 列表");
+    }
+
     // Update CPU and Memory metrics
     if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &processes).await {
         error!("Failed to update CPU and memory metrics: {}", e);
@@ -182,8 +250,16 @@ async fn update_metrics(
 
                 tokio::spawn(async move {
                     if let Some(metric) = metrics.jstat_metrics_map.get(command) {
-                        if let Err(err) = fetch_and_update_jstat(&pid, &process_name, command, metric, java_home.as_deref()).await {
-                            warn!("Failed to update {} metrics for PID {} ({}): {}", command, pid, process_name, err);
+                        match fetch_and_update_jstat(&pid, &process_name, command, metric, java_home.as_deref()).await {
+                            Ok(metric_names) => {
+                                // 记录 metric_names
+                                let mut jstat_labels = metrics.jstat_labels.lock().await;
+                                let key = (command, pid.clone(), process_name.clone());
+                                jstat_labels.entry(key).or_insert_with(HashSet::new).extend(metric_names);
+                            },
+                            Err(err) => {
+                                warn!("Failed to update {} metrics for PID {} ({}): {}", command, pid, process_name, err);
+                            }
                         }
                     }
                 })
@@ -197,14 +273,13 @@ async fn update_metrics(
     Ok(())
 }
 
-// 通用的 fetch_and_update_jstat 函数
 async fn fetch_and_update_jstat(
     pid: &String,
     process_name: &String,
     command: &str,
     jstat_metrics: &GaugeVec,
     java_home: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<HashSet<String>, Box<dyn std::error::Error + Send + Sync>> {
     let mut cmd = Command::new("jstat");
     cmd.args(&[command, pid, "1000", "1"]);
 
@@ -213,7 +288,7 @@ async fn fetch_and_update_jstat(
         cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
     }
 
-    let output = cmd.output()?;
+    let output = cmd.output().await?;
 
     if !output.status.success() {
         return Err(format!(
@@ -240,6 +315,7 @@ async fn fetch_and_update_jstat(
         ).into());
     }
 
+    let mut metric_names = HashSet::new();
     for (header, value) in headers.iter().zip(values.iter()) {
         let parsed_value = if *value == "-" {
             0.0
@@ -259,9 +335,10 @@ async fn fetch_and_update_jstat(
         jstat_metrics
             .with_label_values(&[pid, process_name, header])
             .set(parsed_value);
+        metric_names.insert(header.to_string());
     }
 
-    Ok(())
+    Ok(metric_names)
 }
 
 async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
@@ -313,13 +390,13 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
 }
 
 // 获取 Java 进程
-fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+async fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut command = Command::new("jps");
     command.arg("-l");
 
     merge_java_home(java_home, &mut command)?;
 
-    let output = command.output()?;
+    let output = command.output().await?;
 
     if !output.status.success() {
         return Err(format!(

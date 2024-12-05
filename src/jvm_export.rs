@@ -10,7 +10,7 @@ use env_logger::Env;
 use sysinfo::{System};
 use tokio::sync::Mutex;
 
-const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
+const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class", "-compiler"];
 const EXCLUDED_PROCESSES: &[&str] = &["jps"];
 
 struct Metrics {
@@ -18,6 +18,8 @@ struct Metrics {
     cpu_usage: GaugeVec,
     memory_usage: GaugeVec,
     memory_usage_percentage: GaugeVec,
+    start_time: GaugeVec,
+    up_time: GaugeVec,
     active_pids: Mutex<HashMap<String, String>>,
     jstat_labels: Mutex<HashMap<(&'static str, String, String), HashSet<String>>>,
 }
@@ -37,14 +39,13 @@ impl Metrics {
             registry.register(Box::new(metric.clone())).expect(&format!("Failed to register metric for {}", cmd));
             metrics_map.insert(cmd, metric);
         }
-        // Initialize CPU usage metric
+
         let cpu_usage = GaugeVec::new(
             prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
             &["pid", "process_name"],
         ).expect("Failed to create CPU usage GaugeVec");
         registry.register(Box::new(cpu_usage.clone())).expect("Failed to register CPU usage metric");
 
-        // Initialize Memory usage metric
         let memory_usage = GaugeVec::new(
             prometheus::Opts::new("process_memory_usage", "Memory usage (in bytes) of the process"),
             &["pid", "process_name"],
@@ -57,11 +58,25 @@ impl Metrics {
         ).expect("Failed to create Memory usage percentage GaugeVec");
         registry.register(Box::new(memory_usage_percentage.clone())).expect("Failed to register Memory usage percentage metric");
 
+        let start_time = GaugeVec::new(
+            prometheus::Opts::new("process_start_time", "Start time of the process in seconds since the epoch"),
+            &["pid", "process_name"],
+        ).expect("Failed to create start time GaugeVec");
+        registry.register(Box::new(start_time.clone())).expect("Failed to register start time metric");
+
+        let up_time = GaugeVec::new(
+            prometheus::Opts::new("process_up_time", "Up time of the process in seconds"),
+            &["pid", "process_name"],
+        ).expect("Failed to create up time GaugeVec");
+        registry.register(Box::new(up_time.clone())).expect("Failed to register up time metric");
+
         Metrics {
             jstat_metrics_map: metrics_map,
             cpu_usage,
             memory_usage,
             memory_usage_percentage,
+            start_time,
+            up_time,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
         }
@@ -199,9 +214,9 @@ async fn update_metrics(
         let mut jstat_labels = metrics.jstat_labels.lock().await;
         for (pid, process_name) in &removed_pids {
             // 移除 CPU 和 Memory 指标
-            metrics.cpu_usage.remove_label_values(&[pid, process_name]);
-            metrics.memory_usage.remove_label_values(&[pid, process_name]);
-            metrics.memory_usage_percentage.remove_label_values(&[pid, process_name]);
+            let _ = metrics.cpu_usage.remove_label_values(&[pid, process_name]);
+            let _ = metrics.memory_usage.remove_label_values(&[pid, process_name]);
+            let _ = metrics.memory_usage_percentage.remove_label_values(&[pid, process_name]);
 
             // 动态获取并移除 jstat 指标
             for &command in JSTAT_COMMANDS.iter() {
@@ -209,7 +224,7 @@ async fn update_metrics(
                 if let Some(metric_names) = jstat_labels.get(&key) {
                     if let Some(metric) = metrics.jstat_metrics_map.get(command) {
                         for metric_name in metric_names.iter() {
-                            metric.remove_label_values(&[pid, process_name, metric_name]);
+                            let _ = metric.remove_label_values(&[pid, process_name, metric_name]);
                         }
                     }
                 }
@@ -217,7 +232,6 @@ async fn update_metrics(
                 jstat_labels.remove(&key);
             }
         }
-        info!("已移除 jstat_labels 中的指标");
     }
 
     let mut active_pids = metrics.active_pids.lock().await;
@@ -258,7 +272,6 @@ async fn update_metrics(
         })
         .collect();
 
-    // 等待所有任务完成
     futures::future::join_all(tasks).await;
 
     Ok(())
@@ -299,36 +312,45 @@ async fn fetch_and_update_jstat(
     let headers: Vec<&str> = lines[0].split_whitespace().collect();
     let values: Vec<&str> = lines[1].split_whitespace().collect();
 
-    if headers.len() != values.len() {
-        return Err(format!(
-            "Mismatch between headers and values for command {}. Headers: {:?}, Values: {:?}",
-            command, headers, values
-        ).into());
-    }
-
     let mut metric_names = HashSet::new();
-    for (header, value) in headers.iter().zip(values.iter()) {
-        let parsed_value = if *value == "-" {
-            0.0
-        } else {
-            match value.parse::<f64>() {
-                Ok(v) => v,
-                Err(_) => {
-                    warn!(
+
+
+    if headers.len() != values.len() {
+        warn!("Mismatch in headers and values count for command {} for PID {}: headers = {:?}, values = {:?}", command, pid, headers, values);
+        // 只处理与标题数量相匹配的值
+        let min_len = std::cmp::min(headers.len(), values.len());
+        for i in 0..min_len {
+            let header = headers[i];
+            let value = values[i];
+            let parsed_value = value.parse::<f64>().unwrap_or(0.0);
+            jstat_metrics
+                .with_label_values(&[pid, process_name, header])
+                .set(parsed_value);
+            metric_names.insert(header.to_string());
+        }
+    } else {
+        for (header, value) in headers.iter().zip(values.iter()) {
+            let parsed_value = if *value == "-" {
+                0.0
+            } else {
+                match value.parse::<f64>() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        warn!(
                        "Failed to parse value for {}: {} in PID {} and Process_name {}",
                        header, value, pid, process_name
                    );
-                    continue;
+                        continue;
+                    }
                 }
-            }
-        };
+            };
 
-        jstat_metrics
-            .with_label_values(&[pid, process_name, header])
-            .set(parsed_value);
-        metric_names.insert(header.to_string());
+            jstat_metrics
+                .with_label_values(&[pid, process_name, header])
+                .set(parsed_value);
+            metric_names.insert(header.to_string());
+        }
     }
-
     Ok(metric_names)
 }
 
@@ -348,7 +370,7 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
         // 检查类名是否在排除列表中（忽略大小写）
         if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
             warn!("Excluding process PID {}: {}", pid_str, class_name);
-            continue; // 跳过此进程
+            continue;
         }
 
         if let Ok(pid) = pid_str.parse::<usize>() {
@@ -361,7 +383,7 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
                 // Update Memory usage (in bytes)
                 metrics.memory_usage
                     .with_label_values(&[pid_str, process_name])
-                    .set(process.memory() as f64); // process.memory() returns in byte
+                    .set(process.memory() as f64);
 
                 let process_memory_kb = process.memory() as f64;
                 let memory_usage_percentage = if total_memory_kb > 0.0 {
@@ -373,6 +395,17 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
                 metrics.memory_usage_percentage
                     .with_label_values(&[pid_str, process_name])
                     .set(memory_usage_percentage);
+
+                let start_time_secs = process.start_time();
+                let up_time_secs = process.run_time();
+
+                metrics.start_time
+                    .with_label_values(&[pid_str, process_name])
+                    .set(start_time_secs as f64);
+
+                metrics.up_time
+                    .with_label_values(&[pid_str, process_name])
+                    .set(up_time_secs as f64);
             }
         }
     }

@@ -177,9 +177,7 @@ async fn update_metrics(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let processes = get_java_processes(java_home, full_path).await?;
     let current_pids: HashMap<String, String> = processes.clone();
-    info!("获取到 {} 个 Java 进程", current_pids.len());
 
-    // 第一步：确定需要移除的 PID 列表
     let removed_pids: Vec<(String, String)> = {
         let active_pids = metrics.active_pids.lock().await;
         active_pids
@@ -188,9 +186,7 @@ async fn update_metrics(
             .map(|(pid, pname)| (pid.clone(), pname.clone()))
             .collect()
     };
-    info!("找到 {} 个需要移除的 PID", removed_pids.len());
 
-    // 第二步：移除 active_pids 中的 PID
     if !removed_pids.is_empty() {
         let mut active_pids = metrics.active_pids.lock().await;
         for (pid, _) in &removed_pids {
@@ -229,7 +225,6 @@ async fn update_metrics(
     {
         let mut active_pids = metrics.active_pids.lock().await;
         *active_pids = current_pids.clone();
-        info!("已更新 active_pids 列表");
     }
 
     // Update CPU and Memory metrics

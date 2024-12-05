@@ -195,7 +195,6 @@ async fn update_metrics(
         info!("已移除 active_pids 中的 PID");
     }
 
-    // 第三步：移除 jstat_labels 和相关指标
     if !removed_pids.is_empty() {
         let mut jstat_labels = metrics.jstat_labels.lock().await;
         for (pid, process_name) in &removed_pids {
@@ -221,11 +220,8 @@ async fn update_metrics(
         info!("已移除 jstat_labels 中的指标");
     }
 
-    // 更新活跃 PID 列表
-    {
-        let mut active_pids = metrics.active_pids.lock().await;
-        *active_pids = current_pids.clone();
-    }
+    let mut active_pids = metrics.active_pids.lock().await;
+    *active_pids = current_pids.clone();
 
     // Update CPU and Memory metrics
     if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &processes).await {
@@ -251,7 +247,7 @@ async fn update_metrics(
                                 let mut jstat_labels = metrics.jstat_labels.lock().await;
                                 let key = (command, pid.clone(), process_name.clone());
                                 jstat_labels.entry(key).or_insert_with(HashSet::new).extend(metric_names);
-                            },
+                            }
                             Err(err) => {
                                 warn!("Failed to update {} metrics for PID {} ({}): {}", command, pid, process_name, err);
                             }

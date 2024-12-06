@@ -217,6 +217,8 @@ async fn update_metrics(
             let _ = metrics.cpu_usage.remove_label_values(&[pid, process_name]);
             let _ = metrics.memory_usage.remove_label_values(&[pid, process_name]);
             let _ = metrics.memory_usage_percentage.remove_label_values(&[pid, process_name]);
+            let _ = metrics.start_time.remove_label_values(&[pid, process_name]);
+            let _ = metrics.up_time.remove_label_values(&[pid, process_name]);
 
             // 动态获取并移除 jstat 指标
             for &command in JSTAT_COMMANDS.iter() {

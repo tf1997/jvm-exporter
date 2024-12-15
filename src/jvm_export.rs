@@ -20,21 +20,21 @@ struct Metrics {
     memory_usage_percentage: GaugeVec,
     start_time: GaugeVec,
     up_time: GaugeVec,
-    active_pids: Mutex<HashMap<String, String>>,
-    jstat_labels: Mutex<HashMap<(&'static str, String, String), HashSet<String>>>,
+    active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
+    jstat_labels: Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
 }
 
 impl Metrics {
     fn new(registry: &Registry) -> Self {
         let mut metrics_map = HashMap::new();
 
-        for &cmd in JSTAT_COMMANDS {
+        for &cmd in JSTAT_COMMANDS.iter() {
             let metric = GaugeVec::new(
                 prometheus::Opts::new(
-                    format!("jstat_{}_metrics", &cmd[1..]), // 去掉前导的 '-'
+                    format!("jstat_{}_metrics", &cmd[1..]), // Remove leading '-'
                     format!("Metrics from jstat {}", cmd),
                 ),
-                &["pid", "process_name", "metric_name"],
+                &["container", "pid", "process_name", "metric_name"],
             ).expect(&format!("Failed to create GaugeVec for command {}", cmd));
             registry.register(Box::new(metric.clone())).expect(&format!("Failed to register metric for {}", cmd));
             metrics_map.insert(cmd, metric);
@@ -42,31 +42,31 @@ impl Metrics {
 
         let cpu_usage = GaugeVec::new(
             prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
-            &["pid", "process_name"],
+            &["container", "pid", "process_name"],
         ).expect("Failed to create CPU usage GaugeVec");
         registry.register(Box::new(cpu_usage.clone())).expect("Failed to register CPU usage metric");
 
         let memory_usage = GaugeVec::new(
             prometheus::Opts::new("process_memory_usage", "Memory usage (in bytes) of the process"),
-            &["pid", "process_name"],
+            &["container", "pid", "process_name"],
         ).expect("Failed to create Memory usage GaugeVec");
         registry.register(Box::new(memory_usage.clone())).expect("Failed to register Memory usage metric");
 
         let memory_usage_percentage = GaugeVec::new(
             prometheus::Opts::new("process_memory_usage_percentage", "Memory usage percentage of the process"),
-            &["pid", "process_name"],
+            &["container", "pid", "process_name"],
         ).expect("Failed to create Memory usage percentage GaugeVec");
         registry.register(Box::new(memory_usage_percentage.clone())).expect("Failed to register Memory usage percentage metric");
 
         let start_time = GaugeVec::new(
             prometheus::Opts::new("process_start_time", "Start time of the process in seconds since the epoch"),
-            &["pid", "process_name"],
+            &["container", "pid", "process_name"],
         ).expect("Failed to create start time GaugeVec");
         registry.register(Box::new(start_time.clone())).expect("Failed to register start time metric");
 
         let up_time = GaugeVec::new(
             prometheus::Opts::new("process_up_time", "Up time of the process in seconds"),
-            &["pid", "process_name"],
+            &["container", "pid", "process_name"],
         ).expect("Failed to create up time GaugeVec");
         registry.register(Box::new(up_time.clone())).expect("Failed to register up time metric");
 
@@ -184,88 +184,128 @@ async fn handle_metrics(
     Ok(response)
 }
 
+struct ProcessInfo {
+    container: String, // "host" or container ID
+    pid: String,
+    process_name: String,
+}
+
 // 更新所有指标
 async fn update_metrics(
     metrics: Arc<Metrics>,
     java_home: Option<&str>,
     full_path: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let processes = get_java_processes(java_home, full_path).await?;
-    let current_pids: HashMap<String, String> = processes.clone();
+    let mut all_processes = Vec::new();
+    // 1. Collect Host Processes
+    let host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
+    info!("Detect and Collect Host Processes{}", host_processes.len());
+    for (pid, pname) in host_processes {
+        all_processes.push(ProcessInfo {
+            container: "host".to_string(),
+            pid,
+            process_name: pname,
+        });
+    }
+    // 2. Detect and Collect Container Processes
+    let container_processes = get_container_java_processes(java_home, full_path).await?;
+    info!("Detect and Collect Container Processes{}", container_processes.len());
+    all_processes.extend(container_processes);
 
+    // Create a unique key for each process as "container#pid"
+    let current_pids: HashMap<String, String> = all_processes.iter()
+        .map(|p| (format!("{}#{}", p.container, p.pid), p.process_name.clone()))
+        .collect();
+
+    // Identify removed PIDs
     let removed_pids: Vec<(String, String)> = {
         let active_pids = metrics.active_pids.lock().await;
         active_pids
             .iter()
-            .filter(|(pid, _)| !current_pids.contains_key(*pid))
-            .map(|(pid, pname)| (pid.clone(), pname.clone()))
+            .filter(|(key, _)| !current_pids.contains_key(*key))
+            .map(|(key, pname)| (key.clone(), pname.clone()))
             .collect()
     };
 
+    // Remove metrics for removed PIDs
     if !removed_pids.is_empty() {
         let mut active_pids = metrics.active_pids.lock().await;
-        for (pid, _) in &removed_pids {
-            active_pids.remove(pid);
+        for (key, _) in &removed_pids {
+            active_pids.remove(key);
         }
-        info!("已移除 active_pids 中的 PID");
-    }
+        info!("Removed PIDs from active_pids");
 
-    if !removed_pids.is_empty() {
         let mut jstat_labels = metrics.jstat_labels.lock().await;
-        for (pid, process_name) in &removed_pids {
-            // 移除 CPU 和 Memory 指标
-            let _ = metrics.cpu_usage.remove_label_values(&[pid, process_name]);
-            let _ = metrics.memory_usage.remove_label_values(&[pid, process_name]);
-            let _ = metrics.memory_usage_percentage.remove_label_values(&[pid, process_name]);
-            let _ = metrics.start_time.remove_label_values(&[pid, process_name]);
-            let _ = metrics.up_time.remove_label_values(&[pid, process_name]);
+        for (key, process_name) in &removed_pids {
+            let parts: Vec<&str> = key.split('#').collect();
+            if parts.len() != 2 {
+                continue;
+            }
+            let container = parts[0];
+            let pid = parts[1];
 
-            // 动态获取并移除 jstat 指标
+            // Remove CPU and Memory metrics
+            metrics.cpu_usage.remove_label_values(&[container, pid, process_name]);
+            metrics.memory_usage.remove_label_values(&[container, pid, process_name]);
+            metrics.memory_usage_percentage.remove_label_values(&[container, pid, process_name]);
+            metrics.start_time.remove_label_values(&[container, pid, process_name]);
+            metrics.up_time.remove_label_values(&[container, pid, process_name]);
+
+            // Remove jstat metrics
             for &command in JSTAT_COMMANDS.iter() {
-                let key = (command, pid.clone(), process_name.clone());
-                if let Some(metric_names) = jstat_labels.get(&key) {
+                let key_jstat = (command, container.to_string(), pid.to_string(), process_name.clone());
+                if let Some(metric_names) = jstat_labels.get(&key_jstat) {
                     if let Some(metric) = metrics.jstat_metrics_map.get(command) {
                         for metric_name in metric_names.iter() {
-                            let _ = metric.remove_label_values(&[pid, process_name, metric_name]);
+                            let _ = metric.remove_label_values(&[container, pid, process_name, metric_name]);
                         }
                     }
                 }
-                // 移除记录的 metric_names
-                jstat_labels.remove(&key);
+                // Remove recorded metric_names
+                jstat_labels.remove(&key_jstat);
             }
         }
     }
 
-    let mut active_pids = metrics.active_pids.lock().await;
-    *active_pids = current_pids.clone();
+    // Update active_pids
+    {
+        let mut active_pids = metrics.active_pids.lock().await;
+        *active_pids = current_pids.clone();
+    }
 
     // Update CPU and Memory metrics
-    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &processes).await {
+    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &all_processes).await {
         error!("Failed to update CPU and memory metrics: {}", e);
     }
-    let tasks: Vec<_> = processes
+
+    // Update jstat metrics
+    let tasks: Vec<_> = all_processes
         .into_iter()
-        .flat_map(|(pid, process_name)| {
+        .flat_map(|proc_info| {
             let metrics = Arc::clone(&metrics);
             let java_home = java_home.map(|s| s.to_string());
+            let container = proc_info.container.clone();
+            let pid = proc_info.pid.clone();
+            let process_name = proc_info.process_name.clone();
 
             JSTAT_COMMANDS.iter().map(move |&command| {
                 let metrics = Arc::clone(&metrics);
                 let java_home = java_home.clone();
+                let container = container.clone();
                 let pid = pid.clone();
                 let process_name = process_name.clone();
 
                 tokio::spawn(async move {
                     if let Some(metric) = metrics.jstat_metrics_map.get(command) {
-                        match fetch_and_update_jstat(&pid, &process_name, command, metric, java_home.as_deref()).await {
+                        match fetch_and_update_jstat(&container, &pid, &process_name, command, metric, java_home.as_deref()).await {
                             Ok(metric_names) => {
-                                // 记录 metric_names
+                                // Record metric_names
                                 let mut jstat_labels = metrics.jstat_labels.lock().await;
-                                let key = (command, pid.clone(), process_name.clone());
+                                let key = (command, container.clone(), pid.clone(), process_name.clone());
                                 jstat_labels.entry(key).or_insert_with(HashSet::new).extend(metric_names);
                             }
                             Err(err) => {
-                                warn!("Failed to update {} metrics for PID {} ({}): {}", command, pid, process_name, err);
+                                warn!("Failed to update {} metrics for PID {} ({} in {}): {}", command, pid, process_name, container, err);
                             }
                         }
                     }
@@ -280,27 +320,52 @@ async fn update_metrics(
 }
 
 async fn fetch_and_update_jstat(
+    container: &String,
     pid: &String,
     process_name: &String,
     command: &str,
     jstat_metrics: &GaugeVec,
     java_home: Option<&str>,
 ) -> Result<HashSet<String>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut cmd = Command::new("jstat");
-    cmd.args(&[command, pid, "1000", "1"]);
-
-    if let Some(jh) = java_home {
-        cmd.env("JAVA_HOME", jh);
-        cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
-    }
+    let mut cmd = if container == "host" {
+        let mut command_host = Command::new("jstat");
+        command_host.args(&[command, pid, "1000", "1"]);
+        if let Some(jh) = java_home {
+            command_host.env("JAVA_HOME", jh);
+            command_host.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+        }
+        command_host
+    } else {
+        // Execute jstat inside the container
+        if is_docker_available().await {
+            let mut cmd_docker = Command::new("docker");
+            cmd_docker.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
+            if let Some(jh) = java_home {
+                cmd_docker.env("JAVA_HOME", jh);
+                cmd_docker.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+            }
+            cmd_docker
+        } else if is_crictl_available().await {
+            let mut cmd_crictl = Command::new("crictl");
+            cmd_crictl.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
+            if let Some(jh) = java_home {
+                cmd_crictl.env("JAVA_HOME", jh);
+                cmd_crictl.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+            }
+            cmd_crictl
+        } else {
+            return Err("Neither Docker nor crictl is available to execute commands in containers".into());
+        }
+    };
 
     let output = cmd.output().await?;
 
     if !output.status.success() {
         return Err(format!(
-            "jstat {} failed for PID {}: {}",
+            "jstat {} failed for PID {} in container {}: {}",
             command,
             pid,
+            container,
             String::from_utf8_lossy(&output.stderr)
         ).into());
     }
@@ -316,17 +381,16 @@ async fn fetch_and_update_jstat(
 
     let mut metric_names = HashSet::new();
 
-
     if headers.len() != values.len() {
-        warn!("Mismatch in headers and values count for command {} for PID {}: headers = {:?}, values = {:?}", command, pid, headers, values);
-        // 只处理与标题数量相匹配的值
+        warn!("Mismatch in headers and values count for command {} for PID {} in container {}: headers = {:?}, values = {:?}", command, pid, container, headers, values);
+        // Only process matching header-value pairs
         let min_len = std::cmp::min(headers.len(), values.len());
         for i in 0..min_len {
             let header = headers[i];
             let value = values[i];
             let parsed_value = value.parse::<f64>().unwrap_or(0.0);
             jstat_metrics
-                .with_label_values(&[pid, process_name, header])
+                .with_label_values(&[container, pid, process_name, header])
                 .set(parsed_value);
             metric_names.insert(header.to_string());
         }
@@ -339,16 +403,16 @@ async fn fetch_and_update_jstat(
                     Ok(v) => v,
                     Err(_) => {
                         warn!(
-                       "Failed to parse value for {}: {} in PID {} and Process_name {}",
-                       header, value, pid, process_name
-                   );
+                          "Failed to parse value for {}: {} in PID {} and Process_name {} in container {}",
+                          header, value, pid, process_name, container
+                      );
                         continue;
                     }
                 }
             };
 
             jstat_metrics
-                .with_label_values(&[pid, process_name, header])
+                .with_label_values(&[container, pid, process_name, header])
                 .set(parsed_value);
             metric_names.insert(header.to_string());
         }
@@ -356,20 +420,24 @@ async fn fetch_and_update_jstat(
     Ok(metric_names)
 }
 
-async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<String, String>) -> Result<(), Box<dyn std::error::Error>> {
+// Update CPU and Memory metrics
+async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessInfo]) -> Result<(), Box<dyn std::error::Error>> {
     let mut system = System::new_all();
     system.refresh_all();
     let total_memory_kb = system.total_memory() as f64;
 
-    for (pid_str, process_name) in processes {
-        // 检查进程名称是否在排除列表中（忽略大小写）
-        // 提取类名（最后一部分）
+    for proc_info in processes.iter() {
+        let pid_str = &proc_info.pid;
+        let container = &proc_info.container;
+        let process_name = &proc_info.process_name;
+
+        // Extract class name (last part of the package path)
         let class_name = process_name
             .split('.')
             .last()
             .unwrap_or(process_name);
 
-        // 检查类名是否在排除列表中（忽略大小写）
+        // Check if class name is in the exclusion list
         if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
             warn!("Excluding process PID {}: {}", pid_str, class_name);
             continue;
@@ -379,13 +447,13 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
             if let Some(process) = system.process(sysinfo::Pid::from(pid)) {
                 // Update CPU usage
                 metrics.cpu_usage
-                    .with_label_values(&[pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(process.cpu_usage() as f64);
 
                 // Update Memory usage (in bytes)
                 metrics.memory_usage
-                    .with_label_values(&[pid_str, process_name])
-                    .set(process.memory() as f64);
+                    .with_label_values(&[container, pid_str, process_name])
+                    .set(process.memory() as f64); // Convert KB to Bytes
 
                 let process_memory_kb = process.memory() as f64;
                 let memory_usage_percentage = if total_memory_kb > 0.0 {
@@ -395,18 +463,18 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
                 };
 
                 metrics.memory_usage_percentage
-                    .with_label_values(&[pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(memory_usage_percentage);
 
                 let start_time_secs = process.start_time();
                 let up_time_secs = process.run_time();
 
                 metrics.start_time
-                    .with_label_values(&[pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(start_time_secs as f64);
 
                 metrics.up_time
-                    .with_label_values(&[pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(up_time_secs as f64);
             }
         }
@@ -415,55 +483,225 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &HashMap<St
     Ok(())
 }
 
-// 获取 Java 进程
-async fn get_java_processes(java_home: Option<&str>, full_path: bool) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-    let mut command = Command::new("jps");
-    command.arg("-l");
-
-    merge_java_home(java_home, &mut command)?;
-
-    let output = command.output().await?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "jps failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ).into());
-    }
-
-    let stdout = String::from_utf8(output.stdout)?;
+// Get Java processes on the host or within containers
+async fn get_java_processes(
+    java_home: Option<&str>,
+    full_path: bool,
+    container: String,
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut processes = HashMap::new();
 
-    // 解析 jps 输出，格式类似于: "12345 some.package.MainClass"
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let process_name_original = parts[1];
-            // 提取类名（路径的最后一部分）
-            let class_name = process_name_original
-                .split('.')
-                .last()
-                .unwrap_or(process_name_original);
+    if container == "host" {
+        // 在主机上直接运行 jps
+        let mut command = Command::new("jps");
+        command.arg("-l");
+        merge_java_home(java_home, &mut command)?;
+        let output = command.output().await?;
 
-            // 检查类名是否在排除列表中
-            if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
-                continue;
+        if !output.status.success() {
+            return Err(format!(
+                "jps failed for host: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+                .into());
+        }
+
+        let stdout = String::from_utf8(output.stdout)?;
+        info!("Host jps output:\n{}", stdout);
+
+        // 解析 jps 输出
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let process_name_original = parts[1];
+                let class_name = process_name_original
+                    .split('.')
+                    .last()
+                    .unwrap_or(process_name_original);
+
+                if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+                    continue;
+                }
+
+                let process_name = if full_path {
+                    process_name_original.to_string()
+                } else {
+                    class_name.to_string()
+                };
+
+                processes.insert(parts[0].to_string(), process_name);
             }
+        }
+    } else {
+        // 根据可用性选择 Docker 或 crictl 执行 jps
+        let mut cmd;
+        if is_docker_available().await {
+            cmd = Command::new("docker");
+            cmd.args(&["exec", &container, "jps", "-l"]);
+            info!("Executing jps inside Docker container: {}", container);
+        } else if is_crictl_available().await {
+            cmd = Command::new("crictl");
+            cmd.args(&["exec", &container, "jps", "-l"]);
+            info!("Executing jps inside crictl container: {}", container);
+        } else {
+            return Err("Neither Docker nor crictl is available to execute commands in containers".into());
+        }
 
-            let process_name = if full_path {
-                process_name_original.to_string() // 使用全包路径
-            } else {
-                class_name.to_string() // 只使用类名
-            };
+        // 设置 JAVA_HOME 环境变量
+        if let Some(jh) = java_home {
+            cmd.env("JAVA_HOME", jh);
+            cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+        }
 
-            processes.insert(parts[0].to_string(), process_name);
+        let output = cmd.output().await?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "jps failed for container {}: {}",
+                container,
+                String::from_utf8_lossy(&output.stderr)
+            )
+                .into());
+        }
+
+        let stdout = String::from_utf8(output.stdout)?;
+        info!("Container {} jps output:\n{}", container, stdout);
+
+        // 解析 jps 输出
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let process_name_original = parts[1];
+                let class_name = process_name_original
+                    .split('.')
+                    .last()
+                    .unwrap_or(process_name_original);
+
+                if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+                    continue;
+                }
+
+                let process_name = if full_path {
+                    process_name_original.to_string()
+                } else {
+                    class_name.to_string()
+                };
+
+                processes.insert(parts[0].to_string(), process_name);
+            }
         }
     }
 
     Ok(processes)
 }
 
-// 合并 JAVA_HOME 到命令环境
+// Detect if Docker is available
+async fn is_docker_available() -> bool {
+    let output = Command::new("docker")
+        .arg("ps")
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    output
+}
+
+// Detect if crictl is available
+async fn is_crictl_available() -> bool {
+    let output = Command::new("crictl")
+        .arg("ps")
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    output
+}
+
+// Get Java processes from all containers
+async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+    let mut container_processes = Vec::new();
+
+    if is_docker_available().await {
+        let containers = list_docker_containers().await?;
+        for container in containers {
+            match get_java_processes(java_home, full_path, container.clone()).await {
+                Ok(procs) => {
+                    for (pid, pname) in procs {
+                        container_processes.push(ProcessInfo {
+                            container: container.clone(),
+                            pid,
+                            process_name: pname,
+                        });
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to get Java processes for Docker container {}: {}", container, e);
+                }
+            }
+        }
+    }
+
+    if is_crictl_available().await {
+        let containers = list_crictl_containers().await?;
+        for container in containers {
+            match get_java_processes(java_home, full_path, container.clone()).await {
+                Ok(procs) => {
+                    for (pid, pname) in procs {
+                        container_processes.push(ProcessInfo {
+                            container: container.clone(),
+                            pid,
+                            process_name: pname,
+                        });
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to get Java processes for crictl container {}: {}", container, e);
+                }
+            }
+        }
+    }
+
+    Ok(container_processes)
+}
+
+// List Docker containers
+async fn list_docker_containers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let output = Command::new("docker")
+        .args(&["ps", "--format", "{{.ID}}"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to list Docker containers: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ).into());
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let containers: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+    Ok(containers)
+}
+
+// List crictl containers
+async fn list_crictl_containers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let output = Command::new("crictl")
+        .args(&["ps", "-q"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to list crictl containers: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ).into());
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let containers: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+    Ok(containers)
+}
+
 fn merge_java_home(java_home: Option<&str>, command: &mut Command) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(jh) = java_home {
         command.env("JAVA_HOME", jh);

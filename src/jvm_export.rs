@@ -197,9 +197,9 @@ async fn update_metrics(
     full_path: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_processes = Vec::new();
-    info!("update_metrics");
     // 1. Collect Host Processes
     let host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
+    info!("Detect and Collect Host Processes{}", host_processes.len());
     for (pid, pname) in host_processes {
         all_processes.push(ProcessInfo {
             container: "host".to_string(),
@@ -207,9 +207,9 @@ async fn update_metrics(
             process_name: pname,
         });
     }
-
     // 2. Detect and Collect Container Processes
     let container_processes = get_container_java_processes(java_home, full_path).await?;
+    info!("Detect and Collect Container Processes{}", container_processes.len());
     all_processes.extend(container_processes);
 
     // Create a unique key for each process as "container#pid"
@@ -337,7 +337,6 @@ async fn fetch_and_update_jstat(
         command_host
     } else {
         // Execute jstat inside the container
-        // Determine if using Docker or crictl
         if is_docker_available().await {
             let mut cmd_docker = Command::new("docker");
             cmd_docker.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
@@ -348,7 +347,7 @@ async fn fetch_and_update_jstat(
             cmd_docker
         } else if is_crictl_available().await {
             let mut cmd_crictl = Command::new("crictl");
-            cmd_crictl.args(&["exec", container, "--", "jstat", command, pid, "1000", "1"]);
+            cmd_crictl.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
             if let Some(jh) = java_home {
                 cmd_crictl.env("JAVA_HOME", jh);
                 cmd_crictl.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
@@ -427,13 +426,9 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessIn
     system.refresh_all();
     let total_memory_kb = system.total_memory() as f64;
 
-    // Separate host processes for sysinfo
-    let host_processes: Vec<&ProcessInfo> = processes.iter()
-        .filter(|p| p.container == "host")
-        .collect();
-
-    for proc_info in host_processes {
+    for proc_info in processes.iter() {
         let pid_str = &proc_info.pid;
+        let container = &proc_info.container;
         let process_name = &proc_info.process_name;
 
         // Extract class name (last part of the package path)
@@ -452,13 +447,13 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessIn
             if let Some(process) = system.process(sysinfo::Pid::from(pid)) {
                 // Update CPU usage
                 metrics.cpu_usage
-                    .with_label_values(&["host", pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(process.cpu_usage() as f64);
 
                 // Update Memory usage (in bytes)
                 metrics.memory_usage
-                    .with_label_values(&["host", pid_str, process_name])
-                    .set(process.memory() as f64 * 1024.0); // Convert KB to Bytes
+                    .with_label_values(&[container, pid_str, process_name])
+                    .set(process.memory() as f64); // Convert KB to Bytes
 
                 let process_memory_kb = process.memory() as f64;
                 let memory_usage_percentage = if total_memory_kb > 0.0 {
@@ -468,18 +463,18 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessIn
                 };
 
                 metrics.memory_usage_percentage
-                    .with_label_values(&["host", pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(memory_usage_percentage);
 
                 let start_time_secs = process.start_time();
                 let up_time_secs = process.run_time();
 
                 metrics.start_time
-                    .with_label_values(&["host", pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(start_time_secs as f64);
 
                 metrics.up_time
-                    .with_label_values(&["host", pid_str, process_name])
+                    .with_label_values(&[container, pid_str, process_name])
                     .set(up_time_secs as f64);
             }
         }
@@ -489,48 +484,111 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessIn
 }
 
 // Get Java processes on the host or within containers
-async fn get_java_processes(java_home: Option<&str>, full_path: bool, container: String) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-    let mut command = Command::new("jps");
-    command.arg("-l");
-
-    merge_java_home(java_home, &mut command)?;
-
-    let output = command.output().await?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "jps failed for container {}: {}",
-            container,
-            String::from_utf8_lossy(&output.stderr)
-        ).into());
-    }
-
-    let stdout = String::from_utf8(output.stdout)?;
+async fn get_java_processes(
+    java_home: Option<&str>,
+    full_path: bool,
+    container: String,
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut processes = HashMap::new();
 
-    // Parse jps output, format like: "12345 some.package.MainClass"
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let process_name_original = parts[1];
-            // Extract class name (last part of the package path)
-            let class_name = process_name_original
-                .split('.')
-                .last()
-                .unwrap_or(process_name_original);
+    if container == "host" {
+        // 在主机上直接运行 jps
+        let mut command = Command::new("jps");
+        command.arg("-l");
+        merge_java_home(java_home, &mut command)?;
+        let output = command.output().await?;
 
-            // Check if class name is in the exclusion list
-            if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
-                continue;
+        if !output.status.success() {
+            return Err(format!(
+                "jps failed for host: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+                .into());
+        }
+
+        let stdout = String::from_utf8(output.stdout)?;
+        info!("Host jps output:\n{}", stdout);
+
+        // 解析 jps 输出
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let process_name_original = parts[1];
+                let class_name = process_name_original
+                    .split('.')
+                    .last()
+                    .unwrap_or(process_name_original);
+
+                if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+                    continue;
+                }
+
+                let process_name = if full_path {
+                    process_name_original.to_string()
+                } else {
+                    class_name.to_string()
+                };
+
+                processes.insert(parts[0].to_string(), process_name);
             }
+        }
+    } else {
+        // 根据可用性选择 Docker 或 crictl 执行 jps
+        let mut cmd;
+        if is_docker_available().await {
+            cmd = Command::new("docker");
+            cmd.args(&["exec", &container, "jps", "-l"]);
+            info!("Executing jps inside Docker container: {}", container);
+        } else if is_crictl_available().await {
+            cmd = Command::new("crictl");
+            cmd.args(&["exec", &container, "jps", "-l"]);
+            info!("Executing jps inside crictl container: {}", container);
+        } else {
+            return Err("Neither Docker nor crictl is available to execute commands in containers".into());
+        }
 
-            let process_name = if full_path {
-                process_name_original.to_string() // Use full package path
-            } else {
-                class_name.to_string() // Use only class name
-            };
+        // 设置 JAVA_HOME 环境变量
+        if let Some(jh) = java_home {
+            cmd.env("JAVA_HOME", jh);
+            cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+        }
 
-            processes.insert(parts[0].to_string(), process_name);
+        let output = cmd.output().await?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "jps failed for container {}: {}",
+                container,
+                String::from_utf8_lossy(&output.stderr)
+            )
+                .into());
+        }
+
+        let stdout = String::from_utf8(output.stdout)?;
+        info!("Container {} jps output:\n{}", container, stdout);
+
+        // 解析 jps 输出
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let process_name_original = parts[1];
+                let class_name = process_name_original
+                    .split('.')
+                    .last()
+                    .unwrap_or(process_name_original);
+
+                if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+                    continue;
+                }
+
+                let process_name = if full_path {
+                    process_name_original.to_string()
+                } else {
+                    class_name.to_string()
+                };
+
+                processes.insert(parts[0].to_string(), process_name);
+            }
         }
     }
 
@@ -644,7 +702,6 @@ async fn list_crictl_containers() -> Result<Vec<String>, Box<dyn std::error::Err
     Ok(containers)
 }
 
-// Merge JAVA_HOME into the command environment
 fn merge_java_home(java_home: Option<&str>, command: &mut Command) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(jh) = java_home {
         command.env("JAVA_HOME", jh);

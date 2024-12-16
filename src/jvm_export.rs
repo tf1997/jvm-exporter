@@ -1,14 +1,14 @@
+use clap::{App, Arg};
+use env_logger::Env;
+use log::{error, info, warn};
 use prometheus::{Encoder, GaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use tokio::process::Command;
 use std::sync::Arc;
-use warp::Filter;
-use log::{warn, error, info};
-use clap::{App, Arg};
-use env_logger::Env;
-use sysinfo::{System};
+use sysinfo::System;
+use tokio::process::Command;
 use tokio::sync::Mutex;
+use warp::Filter;
 
 const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class", "-compiler"];
 const EXCLUDED_PROCESSES: &[&str] = &["jps"];
@@ -162,7 +162,6 @@ pub(crate) async fn main() {
     }
 }
 
-// 异步处理函数
 async fn handle_metrics(
     metrics: Arc<Metrics>,
     registry: Arc<prometheus::Registry>,
@@ -197,6 +196,7 @@ async fn update_metrics(
     full_path: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_processes = Vec::new();
+    let mut host_process_names: HashSet<String> = HashSet::new();
     // 1. Collect Host Processes
     let host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
     info!("Detect and Collect Host Processes{}", host_processes.len());
@@ -204,13 +204,33 @@ async fn update_metrics(
         all_processes.push(ProcessInfo {
             container: "host".to_string(),
             pid,
-            process_name: pname,
+            process_name: pname.clone(),
         });
+        host_process_names.insert(pname.clone());
     }
     // 2. Detect and Collect Container Processes
     let container_processes = get_container_java_processes(java_home, full_path).await?;
     info!("Detect and Collect Container Processes{}", container_processes.len());
-    all_processes.extend(container_processes);
+    let filtered_container_processes: Vec<ProcessInfo> = container_processes
+        .into_iter()
+        .filter(|proc_info| {
+            if host_process_names.contains(&proc_info.process_name) {
+                info!(
+                "Skipping container process '{}' in '{}': already exists on host.",
+                proc_info.process_name, proc_info.container
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    info!(
+       "Filtered Container Processes (excluding duplicates): {}",
+       filtered_container_processes.len()
+    );
+    all_processes.extend(filtered_container_processes);
 
     // Create a unique key for each process as "container#pid"
     let current_pids: HashMap<String, String> = all_processes.iter()
@@ -492,7 +512,10 @@ async fn get_java_processes(
     let mut processes = HashMap::new();
 
     if container == "host" {
-        // 在主机上直接运行 jps
+        if !is_jps_available().await {
+            error!("jps command not found. Please ensure that JDK is installed and JAVA_HOME is set correctly.");
+            return Ok(processes); // Return empty if jps is not available
+        }
         let mut command = Command::new("jps");
         command.arg("-l");
         merge_java_home(java_home, &mut command)?;
@@ -509,7 +532,6 @@ async fn get_java_processes(
         let stdout = String::from_utf8(output.stdout)?;
         info!("Host jps output:\n{}", stdout);
 
-        // 解析 jps 输出
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
@@ -533,7 +555,10 @@ async fn get_java_processes(
             }
         }
     } else {
-        // 根据可用性选择 Docker 或 crictl 执行 jps
+        if !is_jps_available_inside_container(&container).await {
+            error!("jps command not found inside container {}. Please ensure that JDK is installed in the container.", container);
+            return Ok(processes); // Return empty if jps is not available inside the container
+        }
         let mut cmd;
         if is_docker_available().await {
             cmd = Command::new("docker");
@@ -547,7 +572,6 @@ async fn get_java_processes(
             return Err("Neither Docker nor crictl is available to execute commands in containers".into());
         }
 
-        // 设置 JAVA_HOME 环境变量
         if let Some(jh) = java_home {
             cmd.env("JAVA_HOME", jh);
             cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
@@ -567,7 +591,6 @@ async fn get_java_processes(
         let stdout = String::from_utf8(output.stdout)?;
         info!("Container {} jps output:\n{}", container, stdout);
 
-        // 解析 jps 输出
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
@@ -664,6 +687,41 @@ async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) 
     Ok(container_processes)
 }
 
+async fn is_jps_available() -> bool {
+    Command::new("jps")
+        .arg("-l")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+async fn is_jps_available_inside_container(container: &str) -> bool {
+    if is_docker_available().await {
+        Command::new("docker")
+            .args(&["exec", container, "jps", "-l"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .map(|status| status.success())
+            .unwrap_or(false)
+    } else if is_crictl_available().await {
+        Command::new("crictl")
+            .args(&["exec", container, "jps", "-l"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .map(|status| status.success())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
 // List Docker containers
 async fn list_docker_containers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let output = Command::new("docker")
@@ -710,7 +768,6 @@ fn merge_java_home(java_home: Option<&str>, command: &mut Command) -> Result<(),
     Ok(())
 }
 
-// 配置开机自启为 systemd 服务
 fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/jvm-exporter.service";
 
@@ -726,12 +783,10 @@ WantedBy=multi-user.target".to_string();
     let mut file = std::fs::File::create(service_path)?;
     file.write_all(service_content.as_bytes())?;
 
-    // 通知 systemd 重新加载配置
     std::process::Command::new("systemctl")
         .args(&["daemon-reload"])
         .output()?;
 
-    // 启用服务
     std::process::Command::new("systemctl")
         .args(&["enable", "jvm-exporter.service"])
         .output()?;

@@ -5,7 +5,7 @@ use prometheus::{Encoder, GaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
-use sysinfo::System;
+use sysinfo::{Components, Disk, Disks, Networks, System};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use warp::Filter;
@@ -20,6 +20,12 @@ struct Metrics {
     memory_usage_percentage: GaugeVec,
     start_time: GaugeVec,
     up_time: GaugeVec,
+    system_cpu_usage: GaugeVec,
+    system_memory_usage: GaugeVec,
+    system_memory_usage_percentage: GaugeVec,
+    system_disk_usage: GaugeVec,
+    system_disk_usage_percentage: GaugeVec,
+    system_network_speed: GaugeVec,
     active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
     jstat_labels: Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
 }
@@ -70,6 +76,42 @@ impl Metrics {
         ).expect("Failed to create up time GaugeVec");
         registry.register(Box::new(up_time.clone())).expect("Failed to register up time metric");
 
+        let system_cpu_usage = GaugeVec::new(
+            prometheus::Opts::new("system_cpu_usage_percentage", "Total system CPU usage percentage"),
+            &["cpu"],
+        ).expect("Failed to create system CPU usage GaugeVec");
+        registry.register(Box::new(system_cpu_usage.clone())).expect("Failed to register system CPU usage metric");
+
+        let system_memory_usage = GaugeVec::new(
+            prometheus::Opts::new("system_memory_usage_bytes", "Total system memory usage in bytes"),
+            &["memory"],
+        ).expect("Failed to create system memory usage GaugeVec");
+        registry.register(Box::new(system_memory_usage.clone())).expect("Failed to register system memory usage metric");
+
+        let system_memory_usage_percentage = GaugeVec::new(
+            prometheus::Opts::new("system_memory_usage_percentage", "Total system memory usage percentage"),
+            &["memory"],
+        ).expect("Failed to create system memory usage percentage GaugeVec");
+        registry.register(Box::new(system_memory_usage_percentage.clone())).expect("Failed to register system memory usage percentage metric");
+
+        let system_disk_usage = GaugeVec::new(
+            prometheus::Opts::new("system_disk_usage_bytes", "Disk usage in bytes"),
+            &["disk", "mount_point"],
+        ).expect("Failed to create system disk usage GaugeVec");
+        registry.register(Box::new(system_disk_usage.clone())).expect("Failed to register system disk usage metric");
+
+        let system_disk_usage_percentage = GaugeVec::new(
+            prometheus::Opts::new("system_disk_usage_percentage", "Disk usage percentage"),
+            &["disk", "mount_point"],
+        ).expect("Failed to create system disk usage percentage GaugeVec");
+        registry.register(Box::new(system_disk_usage_percentage.clone())).expect("Failed to register system disk usage percentage metric");
+
+        let system_network_speed = GaugeVec::new(
+            prometheus::Opts::new("system_network_speed_bytes_per_sec", "Network speed in bytes per second"),
+            &["interface"],
+        ).expect("Failed to create system network speed GaugeVec");
+        registry.register(Box::new(system_network_speed.clone())).expect("Failed to register system network speed metric");
+
         Metrics {
             jstat_metrics_map: metrics_map,
             cpu_usage,
@@ -77,6 +119,12 @@ impl Metrics {
             memory_usage_percentage,
             start_time,
             up_time,
+            system_cpu_usage,
+            system_memory_usage,
+            system_memory_usage_percentage,
+            system_disk_usage,
+            system_disk_usage_percentage,
+            system_network_speed,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
         }
@@ -298,6 +346,11 @@ async fn update_metrics(
         error!("Failed to update CPU and memory metrics: {}", e);
     }
 
+    // Update System metrics
+    if let Err(e) = update_system_metrics(Arc::clone(&metrics)).await {
+        error!("Failed to update system metrics: {}", e);
+    }
+
     // Update jstat metrics
     let tasks: Vec<_> = all_processes
         .into_iter()
@@ -446,6 +499,7 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessIn
     system.refresh_all();
     let total_memory_kb = system.total_memory() as f64;
 
+    //todo handle container process metrics
     for proc_info in processes.iter() {
         let pid_str = &proc_info.pid;
         let container = &proc_info.container;
@@ -502,6 +556,64 @@ async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessIn
 
     Ok(())
 }
+
+async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut system = System::new_all();
+    system.refresh_all();
+
+    for (i, processor) in system.cpus().into_iter().enumerate() {
+        let cpu_label = format!("cpu_{}", i);
+        metrics.system_cpu_usage
+            .with_label_values(&[&cpu_label])
+            .set(processor.cpu_usage() as f64);
+    }
+
+    let total_memory = system.total_memory() as f64;
+    let used_memory = system.used_memory() as f64;
+    metrics.system_memory_usage
+        .with_label_values(&["used"])
+        .set(used_memory);
+    let memory_usage_percentage = if total_memory > 0.0 {
+        (used_memory / total_memory) * 100.0
+    } else {
+        0.0
+    };
+    metrics.system_memory_usage_percentage
+        .with_label_values(&["memory"])
+        .set(memory_usage_percentage);
+
+    for disk in &Disks::new_with_refreshed_list() {
+        let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
+        let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
+        let total_space = disk.total_space() as f64;
+        let available_space = disk.available_space() as f64;
+        let used_space = total_space - available_space;
+        let usage_percentage = if total_space > 0.0 {
+            (used_space / total_space) * 100.0
+        } else {
+            0.0
+        };
+
+        metrics.system_disk_usage
+            .with_label_values(&[&disk_name, &mount_point])
+            .set(used_space);
+
+        metrics.system_disk_usage_percentage
+            .with_label_values(&[&disk_name, &mount_point])
+            .set(usage_percentage);
+    }
+
+    for (interface_name, data) in &Networks::new_with_refreshed_list() {
+        let received = data.received() as f64;
+        let transmitted = data.transmitted() as f64;
+        metrics.system_network_speed
+            .with_label_values(&[interface_name])
+            .set(received + transmitted);
+    }
+
+    Ok(())
+}
+
 
 // Get Java processes on the host or within containers
 async fn get_java_processes(

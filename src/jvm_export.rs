@@ -22,10 +22,14 @@ struct Metrics {
     up_time: GaugeVec,
     system_cpu_usage: GaugeVec,
     system_memory_usage: GaugeVec,
-    system_memory_usage_percentage: GaugeVec,
+    system_total_memory: GaugeVec,
     system_disk_usage: GaugeVec,
-    system_disk_usage_percentage: GaugeVec,
-    system_network_speed: GaugeVec,
+    system_total_disk: GaugeVec,
+    system_network_receive_bytes_per_sec: GaugeVec,
+    system_network_transmit_bytes_per_sec: GaugeVec,
+    system_uptime: GaugeVec,
+    system_swap_total_bytes: GaugeVec,
+    system_swap_used_bytes: GaugeVec,
     active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
     jstat_labels: Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
 }
@@ -88,11 +92,11 @@ impl Metrics {
         ).expect("Failed to create system memory usage GaugeVec");
         registry.register(Box::new(system_memory_usage.clone())).expect("Failed to register system memory usage metric");
 
-        let system_memory_usage_percentage = GaugeVec::new(
-            prometheus::Opts::new("system_memory_usage_percentage", "Total system memory usage percentage"),
+        let system_total_memory = GaugeVec::new(
+            prometheus::Opts::new("system_total_memory_bytes", "Total system memory in bytes"),
             &["memory"],
-        ).expect("Failed to create system memory usage percentage GaugeVec");
-        registry.register(Box::new(system_memory_usage_percentage.clone())).expect("Failed to register system memory usage percentage metric");
+        ).expect("Failed to create system_total_memory GaugeVec");
+        registry.register(Box::new(system_total_memory.clone())).expect("Failed to register system_total_memory metric");
 
         let system_disk_usage = GaugeVec::new(
             prometheus::Opts::new("system_disk_usage_bytes", "Disk usage in bytes"),
@@ -100,17 +104,41 @@ impl Metrics {
         ).expect("Failed to create system disk usage GaugeVec");
         registry.register(Box::new(system_disk_usage.clone())).expect("Failed to register system disk usage metric");
 
-        let system_disk_usage_percentage = GaugeVec::new(
-            prometheus::Opts::new("system_disk_usage_percentage", "Disk usage percentage"),
+        let system_total_disk = GaugeVec::new(
+            prometheus::Opts::new("system_total_disk_bytes", "Total disk space in bytes"),
             &["disk", "mount_point"],
-        ).expect("Failed to create system disk usage percentage GaugeVec");
-        registry.register(Box::new(system_disk_usage_percentage.clone())).expect("Failed to register system disk usage percentage metric");
+        ).expect("Failed to create system_total_disk GaugeVec");
+        registry.register(Box::new(system_total_disk.clone())).expect("Failed to register system_total_disk metric");
 
-        let system_network_speed = GaugeVec::new(
-            prometheus::Opts::new("system_network_speed_bytes_per_sec", "Network speed in bytes per second"),
+        let system_network_receive_bytes_per_sec = GaugeVec::new(
+            prometheus::Opts::new("system_network_receive_bytes_per_sec", "Network receive rate in bytes per second"),
             &["interface"],
-        ).expect("Failed to create system network speed GaugeVec");
-        registry.register(Box::new(system_network_speed.clone())).expect("Failed to register system network speed metric");
+        ).expect("Failed to create system_network_receive_bytes_per_sec GaugeVec");
+        registry.register(Box::new(system_network_receive_bytes_per_sec.clone())).expect("Failed to register system_network_receive_bytes_per_sec metric");
+
+        let system_network_transmit_bytes_per_sec = GaugeVec::new(
+            prometheus::Opts::new("system_network_transmit_bytes_per_sec", "Network transmit rate in bytes per second"),
+            &["interface"],
+        ).expect("Failed to create system_network_transmit_bytes_per_sec GaugeVec");
+        registry.register(Box::new(system_network_transmit_bytes_per_sec.clone())).expect("Failed to register system_network_transmit_bytes_per_sec metric");
+
+        let system_uptime = GaugeVec::new(
+            prometheus::Opts::new("system_uptime_seconds", "Total system uptime in seconds"),
+            &["type"]
+        ).expect("Failed to create system_uptime_seconds Gauge");
+        registry.register(Box::new(system_uptime.clone())).expect("Failed to register system_uptime_seconds metric");
+
+        let system_swap_total_bytes = GaugeVec::new(
+            prometheus::Opts::new("system_swap_total_bytes", "Total swap memory in bytes"),
+            &["swap_memory"]
+        ).expect("Failed to create system_swap_total_bytes Gauge");
+        registry.register(Box::new(system_swap_total_bytes.clone())).expect("Failed to register system_swap_total_bytes metric");
+
+        let system_swap_used_bytes = GaugeVec::new(
+            prometheus::Opts::new("system_swap_used_bytes", "Used swap memory in bytes"),
+            &["swap_memory"]
+        ).expect("Failed to create system_swap_used_bytes Gauge");
+        registry.register(Box::new(system_swap_used_bytes.clone())).expect("Failed to register system_swap_used_bytes metric");
 
         Metrics {
             jstat_metrics_map: metrics_map,
@@ -121,10 +149,14 @@ impl Metrics {
             up_time,
             system_cpu_usage,
             system_memory_usage,
-            system_memory_usage_percentage,
+            system_total_memory,
             system_disk_usage,
-            system_disk_usage_percentage,
-            system_network_speed,
+            system_total_disk,
+            system_network_receive_bytes_per_sec,
+            system_network_transmit_bytes_per_sec,
+            system_uptime,
+            system_swap_total_bytes,
+            system_swap_used_bytes,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
         }
@@ -573,14 +605,10 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
     metrics.system_memory_usage
         .with_label_values(&["used"])
         .set(used_memory);
-    let memory_usage_percentage = if total_memory > 0.0 {
-        (used_memory / total_memory) * 100.0
-    } else {
-        0.0
-    };
-    metrics.system_memory_usage_percentage
-        .with_label_values(&["memory"])
-        .set(memory_usage_percentage);
+
+    metrics.system_total_memory
+        .with_label_values(&["total"])
+        .set(total_memory);
 
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
@@ -588,28 +616,44 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
         let total_space = disk.total_space() as f64;
         let available_space = disk.available_space() as f64;
         let used_space = total_space - available_space;
-        let usage_percentage = if total_space > 0.0 {
-            (used_space / total_space) * 100.0
-        } else {
-            0.0
-        };
+
 
         metrics.system_disk_usage
             .with_label_values(&[&disk_name, &mount_point])
             .set(used_space);
 
-        metrics.system_disk_usage_percentage
+        metrics.system_total_disk
             .with_label_values(&[&disk_name, &mount_point])
-            .set(usage_percentage);
+            .set(total_space);
     }
 
     for (interface_name, data) in &Networks::new_with_refreshed_list() {
-        let received = data.received() as f64;
-        let transmitted = data.transmitted() as f64;
-        metrics.system_network_speed
+        let received = data.total_received() as f64;
+        let transmitted = data.total_transmitted() as f64;
+        metrics.system_network_receive_bytes_per_sec
             .with_label_values(&[interface_name])
-            .set(received + transmitted);
+            .set(received);
+
+        metrics.system_network_transmit_bytes_per_sec
+            .with_label_values(&[interface_name])
+            .set(transmitted);
     }
+
+    let uptime = System::uptime() as f64; // uptime 返回的是秒
+    metrics.system_uptime
+        .with_label_values(&["system"])
+        .set(uptime);
+
+    let swap_total = system.total_swap() as f64;
+    let swap_used = system.used_swap() as f64;
+
+    metrics.system_swap_total_bytes
+        .with_label_values(&["total"])
+        .set(swap_total);
+
+    metrics.system_swap_used_bytes
+        .with_label_values(&["used"])
+        .set(swap_used);
 
     Ok(())
 }

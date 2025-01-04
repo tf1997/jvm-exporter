@@ -5,7 +5,8 @@ use prometheus::{Encoder, GaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
-use sysinfo::{Components, Disk, Disks, Networks, System};
+use std::{thread, time};
+use sysinfo::{Disks, Networks, System};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use warp::Filter;
@@ -14,149 +15,273 @@ const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class", "-compiler"];
 const EXCLUDED_PROCESSES: &[&str] = &["jps"];
 
 struct Metrics {
-    jstat_metrics_map: HashMap<&'static str, GaugeVec>,
+    process_metrics: ProcessMetrics,
+    system_metrics: SystemMetrics,
+    active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
+    jstat_labels: Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
+}
+
+struct ProcessMetrics {
     cpu_usage: GaugeVec,
     memory_usage: GaugeVec,
     memory_usage_percentage: GaugeVec,
     start_time: GaugeVec,
     up_time: GaugeVec,
-    system_cpu_usage: GaugeVec,
-    system_memory_usage: GaugeVec,
-    system_total_memory: GaugeVec,
-    system_disk_usage: GaugeVec,
-    system_total_disk: GaugeVec,
-    system_network_receive_bytes_per_sec: GaugeVec,
-    system_network_transmit_bytes_per_sec: GaugeVec,
-    system_uptime: GaugeVec,
-    system_swap_total_bytes: GaugeVec,
-    system_swap_used_bytes: GaugeVec,
-    active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
-    jstat_labels: Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
+    jstat_metrics_map: HashMap<&'static str, GaugeVec>,
+}
+
+struct SystemMetrics {
+    cpu_usage: GaugeVec,
+    memory_usage: GaugeVec,
+    total_memory: GaugeVec,
+    disk_usage: GaugeVec,
+    total_disk: GaugeVec,
+    network_receive_bytes_per_sec: GaugeVec,
+    network_transmit_bytes_per_sec: GaugeVec,
+    uptime: GaugeVec,
+    total_swap: GaugeVec,
+    swap_usage: GaugeVec,
 }
 
 impl Metrics {
     fn new(registry: &Registry) -> Self {
-        let mut metrics_map = HashMap::new();
+        // Initialize Process Metrics
+        let process_metrics = {
+            // CPU Usage
+            let cpu_usage = GaugeVec::new(
+                prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
+                &["container", "pid", "process"],
+            )
+                .expect("Failed to create process_cpu_usage GaugeVec");
+            registry
+                .register(Box::new(cpu_usage.clone()))
+                .expect("Failed to register process_cpu_usage metric");
 
-        for &cmd in JSTAT_COMMANDS.iter() {
-            let metric = GaugeVec::new(
+            // Memory Usage
+            let memory_usage = GaugeVec::new(
+                prometheus::Opts::new("process_memory_usage_bytes", "Memory usage in bytes of the process"),
+                &["container", "pid", "process"],
+            )
+                .expect("Failed to create process_memory_usage_bytes GaugeVec");
+            registry
+                .register(Box::new(memory_usage.clone()))
+                .expect("Failed to register process_memory_usage_bytes metric");
+
+            // Memory Usage Percentage
+            let memory_usage_percentage = GaugeVec::new(
                 prometheus::Opts::new(
-                    format!("jstat_{}_metrics", &cmd[1..]), // Remove leading '-'
-                    format!("Metrics from jstat {}", cmd),
+                    "process_memory_usage_percentage",
+                    "Memory usage percentage of the process",
                 ),
-                &["container", "pid", "process_name", "metric_name"],
-            ).expect(&format!("Failed to create GaugeVec for command {}", cmd));
-            registry.register(Box::new(metric.clone())).expect(&format!("Failed to register metric for {}", cmd));
-            metrics_map.insert(cmd, metric);
-        }
+                &["container", "pid", "process"],
+            )
+                .expect("Failed to create process_memory_usage_percentage GaugeVec");
+            registry
+                .register(Box::new(memory_usage_percentage.clone()))
+                .expect("Failed to register process_memory_usage_percentage metric");
 
-        let cpu_usage = GaugeVec::new(
-            prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
-            &["container", "pid", "process_name"],
-        ).expect("Failed to create CPU usage GaugeVec");
-        registry.register(Box::new(cpu_usage.clone())).expect("Failed to register CPU usage metric");
+            // Start Time
+            let start_time = GaugeVec::new(
+                prometheus::Opts::new(
+                    "process_start_time_seconds",
+                    "Start time of the process in seconds since the epoch",
+                ),
+                &["container", "pid", "process"],
+            )
+                .expect("Failed to create process_start_time_seconds GaugeVec");
+            registry
+                .register(Box::new(start_time.clone()))
+                .expect("Failed to register process_start_time_seconds metric");
 
-        let memory_usage = GaugeVec::new(
-            prometheus::Opts::new("process_memory_usage", "Memory usage (in bytes) of the process"),
-            &["container", "pid", "process_name"],
-        ).expect("Failed to create Memory usage GaugeVec");
-        registry.register(Box::new(memory_usage.clone())).expect("Failed to register Memory usage metric");
+            // Up Time
+            let up_time = GaugeVec::new(
+                prometheus::Opts::new(
+                    "process_up_time_seconds",
+                    "Up time of the process in seconds",
+                ),
+                &["container", "pid", "process"],
+            )
+                .expect("Failed to create process_up_time_seconds GaugeVec");
+            registry
+                .register(Box::new(up_time.clone()))
+                .expect("Failed to register process_up_time_seconds metric");
 
-        let memory_usage_percentage = GaugeVec::new(
-            prometheus::Opts::new("process_memory_usage_percentage", "Memory usage percentage of the process"),
-            &["container", "pid", "process_name"],
-        ).expect("Failed to create Memory usage percentage GaugeVec");
-        registry.register(Box::new(memory_usage_percentage.clone())).expect("Failed to register Memory usage percentage metric");
+            // jstat Metrics
+            let mut jstat_metrics_map = HashMap::new();
+            for &cmd in JSTAT_COMMANDS.iter() {
+                let metric = GaugeVec::new(
+                    prometheus::Opts::new(
+                        format!("jstat_{}_metrics", &cmd[1..]),
+                        format!("Metrics from jstat {}", cmd),
+                    ),
+                    &["container", "pid", "process", "metric"],
+                )
+                    .expect(&format!("Failed to create GaugeVec for command {}", cmd));
+                registry
+                    .register(Box::new(metric.clone()))
+                    .expect(&format!("Failed to register metric for {}", cmd));
+                jstat_metrics_map.insert(cmd, metric);
+            }
 
-        let start_time = GaugeVec::new(
-            prometheus::Opts::new("process_start_time", "Start time of the process in seconds since the epoch"),
-            &["container", "pid", "process_name"],
-        ).expect("Failed to create start time GaugeVec");
-        registry.register(Box::new(start_time.clone())).expect("Failed to register start time metric");
+            ProcessMetrics {
+                cpu_usage,
+                memory_usage,
+                memory_usage_percentage,
+                start_time,
+                up_time,
+                jstat_metrics_map,
+            }
+        };
 
-        let up_time = GaugeVec::new(
-            prometheus::Opts::new("process_up_time", "Up time of the process in seconds"),
-            &["container", "pid", "process_name"],
-        ).expect("Failed to create up time GaugeVec");
-        registry.register(Box::new(up_time.clone())).expect("Failed to register up time metric");
+        // Initialize System Metrics
+        let system_metrics = {
+            // System CPU Usage
+            let cpu_usage = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_cpu_usage_percentage",
+                    "Total system CPU usage percentage",
+                ),
+                &["cpu"],
+            )
+                .expect("Failed to create system_cpu_usage_percentage GaugeVec");
+            registry
+                .register(Box::new(cpu_usage.clone()))
+                .expect("Failed to register system_cpu_usage_percentage metric");
 
-        let system_cpu_usage = GaugeVec::new(
-            prometheus::Opts::new("system_cpu_usage_percentage", "Total system CPU usage percentage"),
-            &["cpu"],
-        ).expect("Failed to create system CPU usage GaugeVec");
-        registry.register(Box::new(system_cpu_usage.clone())).expect("Failed to register system CPU usage metric");
+            // System Memory Usage
+            let memory_usage = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_memory_usage_bytes",
+                    "Total system memory usage in bytes",
+                ),
+                &["memory_type"],
+            )
+                .expect("Failed to create system_memory_usage_bytes GaugeVec");
+            registry
+                .register(Box::new(memory_usage.clone()))
+                .expect("Failed to register system_memory_usage_bytes metric");
 
-        let system_memory_usage = GaugeVec::new(
-            prometheus::Opts::new("system_memory_usage_bytes", "Total system memory usage in bytes"),
-            &["memory"],
-        ).expect("Failed to create system memory usage GaugeVec");
-        registry.register(Box::new(system_memory_usage.clone())).expect("Failed to register system memory usage metric");
+            // System Total Memory
+            let total_memory = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_total_memory_bytes",
+                    "Total system memory in bytes",
+                ),
+                &["memory_type"],
+            )
+                .expect("Failed to create system_total_memory_bytes GaugeVec");
+            registry
+                .register(Box::new(total_memory.clone()))
+                .expect("Failed to register system_total_memory_bytes metric");
 
-        let system_total_memory = GaugeVec::new(
-            prometheus::Opts::new("system_total_memory_bytes", "Total system memory in bytes"),
-            &["memory"],
-        ).expect("Failed to create system_total_memory GaugeVec");
-        registry.register(Box::new(system_total_memory.clone())).expect("Failed to register system_total_memory metric");
+            // System Disk Usage
+            let disk_usage = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_disk_usage_bytes",
+                    "Disk usage in bytes",
+                ),
+                &["disk", "mount_point"],
+            )
+                .expect("Failed to create system_disk_usage_bytes GaugeVec");
+            registry
+                .register(Box::new(disk_usage.clone()))
+                .expect("Failed to register system_disk_usage_bytes metric");
 
-        let system_disk_usage = GaugeVec::new(
-            prometheus::Opts::new("system_disk_usage_bytes", "Disk usage in bytes"),
-            &["disk", "mount_point"],
-        ).expect("Failed to create system disk usage GaugeVec");
-        registry.register(Box::new(system_disk_usage.clone())).expect("Failed to register system disk usage metric");
+            // System Total Disk
+            let total_disk = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_total_disk_bytes",
+                    "Total disk space in bytes",
+                ),
+                &["disk", "mount_point"],
+            )
+                .expect("Failed to create system_total_disk_bytes GaugeVec");
+            registry
+                .register(Box::new(total_disk.clone()))
+                .expect("Failed to register system_total_disk_bytes metric");
 
-        let system_total_disk = GaugeVec::new(
-            prometheus::Opts::new("system_total_disk_bytes", "Total disk space in bytes"),
-            &["disk", "mount_point"],
-        ).expect("Failed to create system_total_disk GaugeVec");
-        registry.register(Box::new(system_total_disk.clone())).expect("Failed to register system_total_disk metric");
+            // Network Receive Bytes Per Sec
+            let network_receive_bytes_per_sec = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_network_receive_bytes_per_sec",
+                    "Network receive rate in bytes per second",
+                ),
+                &["interface"],
+            )
+                .expect("Failed to create system_network_receive_bytes_per_sec GaugeVec");
+            registry
+                .register(Box::new(network_receive_bytes_per_sec.clone()))
+                .expect("Failed to register system_network_receive_bytes_per_sec metric");
 
-        let system_network_receive_bytes_per_sec = GaugeVec::new(
-            prometheus::Opts::new("system_network_receive_bytes_per_sec", "Network receive rate in bytes per second"),
-            &["interface"],
-        ).expect("Failed to create system_network_receive_bytes_per_sec GaugeVec");
-        registry.register(Box::new(system_network_receive_bytes_per_sec.clone())).expect("Failed to register system_network_receive_bytes_per_sec metric");
+            // Network Transmit Bytes Per Sec
+            let network_transmit_bytes_per_sec = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_network_transmit_bytes_per_sec",
+                    "Network transmit rate in bytes per second",
+                ),
+                &["interface"],
+            )
+                .expect("Failed to create system_network_transmit_bytes_per_sec GaugeVec");
+            registry
+                .register(Box::new(network_transmit_bytes_per_sec.clone()))
+                .expect("Failed to register system_network_transmit_bytes_per_sec metric");
 
-        let system_network_transmit_bytes_per_sec = GaugeVec::new(
-            prometheus::Opts::new("system_network_transmit_bytes_per_sec", "Network transmit rate in bytes per second"),
-            &["interface"],
-        ).expect("Failed to create system_network_transmit_bytes_per_sec GaugeVec");
-        registry.register(Box::new(system_network_transmit_bytes_per_sec.clone())).expect("Failed to register system_network_transmit_bytes_per_sec metric");
+            // System Uptime
+            let uptime = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_uptime_seconds",
+                    "Total system uptime in seconds",
+                ),
+                &["type"],
+            )
+                .expect("Failed to create system_uptime_seconds GaugeVec");
+            registry
+                .register(Box::new(uptime.clone()))
+                .expect("Failed to register system_uptime_seconds metric");
 
-        let system_uptime = GaugeVec::new(
-            prometheus::Opts::new("system_uptime_seconds", "Total system uptime in seconds"),
-            &["type"]
-        ).expect("Failed to create system_uptime_seconds Gauge");
-        registry.register(Box::new(system_uptime.clone())).expect("Failed to register system_uptime_seconds metric");
+            // System Swap Total Bytes
+            let total_swap = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_total_swap_bytes",
+                    "Total swap memory in bytes",
+                ),
+                &["swap_type"],
+            )
+                .expect("Failed to create system_total_swap GaugeVec");
+            registry
+                .register(Box::new(total_swap.clone()))
+                .expect("Failed to register system_total_swap metric");
 
-        let system_swap_total_bytes = GaugeVec::new(
-            prometheus::Opts::new("system_swap_total_bytes", "Total swap memory in bytes"),
-            &["swap_memory"]
-        ).expect("Failed to create system_swap_total_bytes Gauge");
-        registry.register(Box::new(system_swap_total_bytes.clone())).expect("Failed to register system_swap_total_bytes metric");
+            // System Swap Used Bytes
+            let swap_usage = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_swap_usage_bytes",
+                    "Used swap memory in bytes",
+                ),
+                &["swap_type"],
+            )
+                .expect("Failed to create system_swap_usage GaugeVec");
+            registry
+                .register(Box::new(swap_usage.clone()))
+                .expect("Failed to register system_swap_usage metric");
 
-        let system_swap_used_bytes = GaugeVec::new(
-            prometheus::Opts::new("system_swap_used_bytes", "Used swap memory in bytes"),
-            &["swap_memory"]
-        ).expect("Failed to create system_swap_used_bytes Gauge");
-        registry.register(Box::new(system_swap_used_bytes.clone())).expect("Failed to register system_swap_used_bytes metric");
+            SystemMetrics {
+                cpu_usage,
+                memory_usage,
+                total_memory,
+                disk_usage,
+                total_disk,
+                network_receive_bytes_per_sec,
+                network_transmit_bytes_per_sec,
+                uptime,
+                total_swap,
+                swap_usage,
+            }
+        };
 
         Metrics {
-            jstat_metrics_map: metrics_map,
-            cpu_usage,
-            memory_usage,
-            memory_usage_percentage,
-            start_time,
-            up_time,
-            system_cpu_usage,
-            system_memory_usage,
-            system_total_memory,
-            system_disk_usage,
-            system_total_disk,
-            system_network_receive_bytes_per_sec,
-            system_network_transmit_bytes_per_sec,
-            system_uptime,
-            system_swap_total_bytes,
-            system_swap_used_bytes,
+            process_metrics,
+            system_metrics,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
         }
@@ -198,7 +323,7 @@ pub(crate) async fn main() {
     let registry = Arc::new(prometheus::Registry::new());
     let metrics = Arc::new(Metrics::new(&registry));
 
-    // 封装共享数据到 Arc
+    // Encapsulate shared data into Arc
     let java_home = Arc::new(java_home);
 
     let metrics_route = warp::path("metrics").and_then({
@@ -213,9 +338,7 @@ pub(crate) async fn main() {
             let java_home = java_home.clone();
             let full_path = full_path;
 
-            async move {
-                handle_metrics(metrics, registry, java_home, full_path).await
-            }
+            async move { handle_metrics(metrics, registry, java_home, full_path).await }
         }
     });
 
@@ -244,7 +367,7 @@ pub(crate) async fn main() {
 
 async fn handle_metrics(
     metrics: Arc<Metrics>,
-    registry: Arc<prometheus::Registry>,
+    registry: Arc<Registry>,
     java_home: Arc<Option<String>>,
     full_path: bool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
@@ -266,10 +389,10 @@ async fn handle_metrics(
 struct ProcessInfo {
     container: String, // "host" or container ID
     pid: String,
-    process_name: String,
+    process: String,
 }
 
-// 更新所有指标
+// Update all metrics
 async fn update_metrics(
     metrics: Arc<Metrics>,
     java_home: Option<&str>,
@@ -277,28 +400,33 @@ async fn update_metrics(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_processes = Vec::new();
     let mut host_process_names: HashSet<String> = HashSet::new();
+
     // 1. Collect Host Processes
     let host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
-    info!("Detect and Collect Host Processes{}", host_processes.len());
+    info!("Detect and Collect Host Processes: {}", host_processes.len());
     for (pid, pname) in host_processes {
         all_processes.push(ProcessInfo {
             container: "host".to_string(),
             pid,
-            process_name: pname.clone(),
+            process: pname.clone(),
         });
         host_process_names.insert(pname.clone());
     }
+
     // 2. Detect and Collect Container Processes
     let container_processes = get_container_java_processes(java_home, full_path).await?;
-    info!("Detect and Collect Container Processes{}", container_processes.len());
+    info!(
+       "Detect and Collect Container Processes: {}",
+       container_processes.len()
+   );
     let filtered_container_processes: Vec<ProcessInfo> = container_processes
         .into_iter()
         .filter(|proc_info| {
-            if host_process_names.contains(&proc_info.process_name) {
+            if host_process_names.contains(&proc_info.process) {
                 info!(
-                "Skipping container process '{}' in '{}': already exists on host.",
-                proc_info.process_name, proc_info.container
-                );
+                   "Skipping container process '{}' in '{}': already exists on host.",
+                   proc_info.process, proc_info.container
+               );
                 false
             } else {
                 true
@@ -309,12 +437,13 @@ async fn update_metrics(
     info!(
        "Filtered Container Processes (excluding duplicates): {}",
        filtered_container_processes.len()
-    );
+   );
     all_processes.extend(filtered_container_processes);
 
     // Create a unique key for each process as "container#pid"
-    let current_pids: HashMap<String, String> = all_processes.iter()
-        .map(|p| (format!("{}#{}", p.container, p.pid), p.process_name.clone()))
+    let current_pids: HashMap<String, String> = all_processes
+        .iter()
+        .map(|p| (format!("{}#{}", p.container, p.pid), p.process.clone()))
         .collect();
 
     // Identify removed PIDs
@@ -345,19 +474,34 @@ async fn update_metrics(
             let pid = parts[1];
 
             // Remove CPU and Memory metrics
-            metrics.cpu_usage.remove_label_values(&[container, pid, process_name]);
-            metrics.memory_usage.remove_label_values(&[container, pid, process_name]);
-            metrics.memory_usage_percentage.remove_label_values(&[container, pid, process_name]);
-            metrics.start_time.remove_label_values(&[container, pid, process_name]);
-            metrics.up_time.remove_label_values(&[container, pid, process_name]);
+            metrics.process_metrics
+                .cpu_usage
+                .remove_label_values(&[container, pid, process_name]);
+            metrics.process_metrics
+                .memory_usage
+                .remove_label_values(&[container, pid, process_name]);
+            metrics.process_metrics
+                .memory_usage_percentage
+                .remove_label_values(&[container, pid, process_name]);
+            metrics.process_metrics
+                .start_time
+                .remove_label_values(&[container, pid, process_name]);
+            metrics.process_metrics
+                .up_time
+                .remove_label_values(&[container, pid, process_name]);
 
             // Remove jstat metrics
             for &command in JSTAT_COMMANDS.iter() {
                 let key_jstat = (command, container.to_string(), pid.to_string(), process_name.clone());
                 if let Some(metric_names) = jstat_labels.get(&key_jstat) {
-                    if let Some(metric) = metrics.jstat_metrics_map.get(command) {
+                    if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command) {
                         for metric_name in metric_names.iter() {
-                            let _ = metric.remove_label_values(&[container, pid, process_name, metric_name]);
+                            let _ = metric.remove_label_values(&[
+                                container,
+                                pid,
+                                process_name,
+                                metric_name,
+                            ]);
                         }
                     }
                 }
@@ -391,26 +535,35 @@ async fn update_metrics(
             let java_home = java_home.map(|s| s.to_string());
             let container = proc_info.container.clone();
             let pid = proc_info.pid.clone();
-            let process_name = proc_info.process_name.clone();
+            let process = proc_info.process.clone();
 
             JSTAT_COMMANDS.iter().map(move |&command| {
                 let metrics = Arc::clone(&metrics);
                 let java_home = java_home.clone();
                 let container = container.clone();
                 let pid = pid.clone();
-                let process_name = process_name.clone();
+                let process = process.clone();
 
                 tokio::spawn(async move {
-                    if let Some(metric) = metrics.jstat_metrics_map.get(command) {
-                        match fetch_and_update_jstat(&container, &pid, &process_name, command, metric, java_home.as_deref()).await {
+                    if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command) {
+                        match fetch_and_update_jstat(
+                            &container,
+                            &pid,
+                            &process,
+                            command,
+                            metric,
+                            java_home.as_deref(),
+                        )
+                            .await
+                        {
                             Ok(metric_names) => {
                                 // Record metric_names
                                 let mut jstat_labels = metrics.jstat_labels.lock().await;
-                                let key = (command, container.clone(), pid.clone(), process_name.clone());
+                                let key = (command, container.clone(), pid.clone(), process.clone());
                                 jstat_labels.entry(key).or_insert_with(HashSet::new).extend(metric_names);
                             }
                             Err(err) => {
-                                warn!("Failed to update {} metrics for PID {} ({} in {}): {}", command, pid, process_name, container, err);
+                                warn!("Failed to update {} metrics for PID {} ({} in {}): {}", command, pid, process, container, err);
                             }
                         }
                     }
@@ -427,7 +580,7 @@ async fn update_metrics(
 async fn fetch_and_update_jstat(
     container: &String,
     pid: &String,
-    process_name: &String,
+    process: &String,
     command: &str,
     jstat_metrics: &GaugeVec,
     java_home: Option<&str>,
@@ -487,7 +640,10 @@ async fn fetch_and_update_jstat(
     let mut metric_names = HashSet::new();
 
     if headers.len() != values.len() {
-        warn!("Mismatch in headers and values count for command {} for PID {} in container {}: headers = {:?}, values = {:?}", command, pid, container, headers, values);
+        warn!(
+           "Mismatch in headers and values count for command {} for PID {} in container {}: headers = {:?}, values = {:?}",
+           command, pid, container, headers, values
+       );
         // Only process matching header-value pairs
         let min_len = std::cmp::min(headers.len(), values.len());
         for i in 0..min_len {
@@ -495,7 +651,7 @@ async fn fetch_and_update_jstat(
             let value = values[i];
             let parsed_value = value.parse::<f64>().unwrap_or(0.0);
             jstat_metrics
-                .with_label_values(&[container, pid, process_name, header])
+                .with_label_values(&[container, pid, process, header])
                 .set(parsed_value);
             metric_names.insert(header.to_string());
         }
@@ -508,16 +664,16 @@ async fn fetch_and_update_jstat(
                     Ok(v) => v,
                     Err(_) => {
                         warn!(
-                          "Failed to parse value for {}: {} in PID {} and Process_name {} in container {}",
-                          header, value, pid, process_name, container
-                      );
+                           "Failed to parse value for {}: {} in PID {} and Process {} in container {}",
+                           header, value, pid, process, container
+                       );
                         continue;
                     }
                 }
             };
 
             jstat_metrics
-                .with_label_values(&[container, pid, process_name, header])
+                .with_label_values(&[container, pid, process, header])
                 .set(parsed_value);
             metric_names.insert(header.to_string());
         }
@@ -526,62 +682,74 @@ async fn fetch_and_update_jstat(
 }
 
 // Update CPU and Memory metrics
-async fn update_cpu_memory_metrics(metrics: Arc<Metrics>, processes: &[ProcessInfo]) -> Result<(), Box<dyn std::error::Error>> {
+async fn update_cpu_memory_metrics(
+    metrics: Arc<Metrics>,
+    processes: &[ProcessInfo],
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut system = System::new_all();
     system.refresh_all();
     let total_memory_kb = system.total_memory() as f64;
 
-    //todo handle container process metrics
     for proc_info in processes.iter() {
         let pid_str = &proc_info.pid;
         let container = &proc_info.container;
-        let process_name = &proc_info.process_name;
+        let process = &proc_info.process;
 
         // Extract class name (last part of the package path)
-        let class_name = process_name
-            .split('.')
-            .last()
-            .unwrap_or(process_name);
+        let class_name = process.split('.').last().unwrap_or(process);
 
         // Check if class name is in the exclusion list
-        if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+        if EXCLUDED_PROCESSES
+            .iter()
+            .any(|&excluded| excluded.eq_ignore_ascii_case(class_name))
+        {
             warn!("Excluding process PID {}: {}", pid_str, class_name);
             continue;
         }
 
         if let Ok(pid) = pid_str.parse::<usize>() {
-            if let Some(process) = system.process(sysinfo::Pid::from(pid)) {
+            if let Some(process_info) = system.process(sysinfo::Pid::from(pid)) {
                 // Update CPU usage
-                metrics.cpu_usage
-                    .with_label_values(&[container, pid_str, process_name])
-                    .set(process.cpu_usage() as f64);
+                metrics
+                    .process_metrics
+                    .cpu_usage
+                    .with_label_values(&[container, pid_str, process])
+                    .set(process_info.cpu_usage() as f64);
 
                 // Update Memory usage (in bytes)
-                metrics.memory_usage
-                    .with_label_values(&[container, pid_str, process_name])
-                    .set(process.memory() as f64); // Convert KB to Bytes
+                metrics
+                    .process_metrics
+                    .memory_usage
+                    .with_label_values(&[container, pid_str, process])
+                    .set(process_info.memory() as f64 * 1024.0); // Convert KB to Bytes
 
-                let process_memory_kb = process.memory() as f64;
+                let process_memory_kb = process_info.memory() as f64;
                 let memory_usage_percentage = if total_memory_kb > 0.0 {
                     (process_memory_kb / total_memory_kb) * 100.0
                 } else {
                     0.0
                 };
 
-                metrics.memory_usage_percentage
-                    .with_label_values(&[container, pid_str, process_name])
+                metrics
+                    .process_metrics
+                    .memory_usage_percentage
+                    .with_label_values(&[container, pid_str, process])
                     .set(memory_usage_percentage);
 
-                let start_time_secs = process.start_time();
-                let up_time_secs = process.run_time();
+                let start_time_secs = process_info.start_time() as f64;
+                let up_time_secs = process_info.run_time() as f64;
 
-                metrics.start_time
-                    .with_label_values(&[container, pid_str, process_name])
-                    .set(start_time_secs as f64);
+                metrics
+                    .process_metrics
+                    .start_time
+                    .with_label_values(&[container, pid_str, process])
+                    .set(start_time_secs);
 
-                metrics.up_time
-                    .with_label_values(&[container, pid_str, process_name])
-                    .set(up_time_secs as f64);
+                metrics
+                    .process_metrics
+                    .up_time
+                    .with_label_values(&[container, pid_str, process])
+                    .set(up_time_secs);
             }
         }
     }
@@ -593,23 +761,30 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
     let mut system = System::new_all();
     system.refresh_all();
 
-    for (i, processor) in system.cpus().into_iter().enumerate() {
+    // Update CPU usage
+    for (i, processor) in system.cpus().iter().enumerate() {
         let cpu_label = format!("cpu_{}", i);
-        metrics.system_cpu_usage
+        metrics
+            .system_metrics
+            .cpu_usage
             .with_label_values(&[&cpu_label])
             .set(processor.cpu_usage() as f64);
     }
 
-    let total_memory = system.total_memory() as f64;
-    let used_memory = system.used_memory() as f64;
-    metrics.system_memory_usage
+    // Update Memory usage
+    metrics
+        .system_metrics
+        .memory_usage
         .with_label_values(&["used"])
-        .set(used_memory);
+        .set(system.used_memory() as f64);
 
-    metrics.system_total_memory
+    metrics
+        .system_metrics
+        .memory_usage
         .with_label_values(&["total"])
-        .set(total_memory);
+        .set(system.total_memory() as f64);
 
+    // Update Disk usage
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
@@ -617,47 +792,61 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
         let available_space = disk.available_space() as f64;
         let used_space = total_space - available_space;
 
-
-        metrics.system_disk_usage
+        metrics
+            .system_metrics
+            .disk_usage
             .with_label_values(&[&disk_name, &mount_point])
             .set(used_space);
 
-        metrics.system_total_disk
+        metrics
+            .system_metrics
+            .total_disk
             .with_label_values(&[&disk_name, &mount_point])
             .set(total_space);
     }
 
-    for (interface_name, data) in &Networks::new_with_refreshed_list() {
-        let received = data.total_received() as f64;
-        let transmitted = data.total_transmitted() as f64;
-        metrics.system_network_receive_bytes_per_sec
+    let mut networks = Networks::new_with_refreshed_list();
+    tokio::time::sleep(time::Duration::from_millis(100)).await;
+    networks.refresh();
+    for (interface_name, data) in &networks {
+        let received = data.received() as f64 * 10.0;
+        let transmitted = data.transmitted() as f64 * 10.0;
+        metrics
+            .system_metrics
+            .network_receive_bytes_per_sec
             .with_label_values(&[interface_name])
             .set(received);
 
-        metrics.system_network_transmit_bytes_per_sec
+        metrics
+            .system_metrics
+            .network_transmit_bytes_per_sec
             .with_label_values(&[interface_name])
             .set(transmitted);
     }
 
-    let uptime = System::uptime() as f64; // uptime 返回的是秒
-    metrics.system_uptime
+    // Update System uptime
+    let uptime = System::uptime() as f64; // uptime is in seconds
+    metrics
+        .system_metrics
+        .uptime
         .with_label_values(&["system"])
         .set(uptime);
 
-    let swap_total = system.total_swap() as f64;
-    let swap_used = system.used_swap() as f64;
-
-    metrics.system_swap_total_bytes
+    // Update Swap memory
+    metrics
+        .system_metrics
+        .total_swap
         .with_label_values(&["total"])
-        .set(swap_total);
+        .set(system.total_swap() as f64);
 
-    metrics.system_swap_used_bytes
+    metrics
+        .system_metrics
+        .swap_usage
         .with_label_values(&["used"])
-        .set(swap_used);
+        .set(system.used_swap() as f64);
 
     Ok(())
 }
-
 
 // Get Java processes on the host or within containers
 async fn get_java_processes(
@@ -809,7 +998,7 @@ async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) 
                         container_processes.push(ProcessInfo {
                             container: container.clone(),
                             pid,
-                            process_name: pname,
+                            process: pname,
                         });
                     }
                 }
@@ -829,7 +1018,7 @@ async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) 
                         container_processes.push(ProcessInfo {
                             container: container.clone(),
                             pid,
-                            process_name: pname,
+                            process: pname,
                         });
                     }
                 }

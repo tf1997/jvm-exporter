@@ -50,7 +50,7 @@ impl Metrics {
             // CPU Usage
             let cpu_usage = GaugeVec::new(
                 prometheus::Opts::new("process_cpu_usage", "CPU usage percentage of the process"),
-                &["container", "pid", "process"],
+                &["container", "pid", "process_name"],
             )
                 .expect("Failed to create process_cpu_usage GaugeVec");
             registry
@@ -60,7 +60,7 @@ impl Metrics {
             // Memory Usage
             let memory_usage = GaugeVec::new(
                 prometheus::Opts::new("process_memory_usage_bytes", "Memory usage in bytes of the process"),
-                &["container", "pid", "process"],
+                &["container", "pid", "process_name"],
             )
                 .expect("Failed to create process_memory_usage_bytes GaugeVec");
             registry
@@ -73,7 +73,7 @@ impl Metrics {
                     "process_memory_usage_percentage",
                     "Memory usage percentage of the process",
                 ),
-                &["container", "pid", "process"],
+                &["container", "pid", "process_name"],
             )
                 .expect("Failed to create process_memory_usage_percentage GaugeVec");
             registry
@@ -86,7 +86,7 @@ impl Metrics {
                     "process_start_time_seconds",
                     "Start time of the process in seconds since the epoch",
                 ),
-                &["container", "pid", "process"],
+                &["container", "pid", "process_name"],
             )
                 .expect("Failed to create process_start_time_seconds GaugeVec");
             registry
@@ -99,7 +99,7 @@ impl Metrics {
                     "process_up_time_seconds",
                     "Up time of the process in seconds",
                 ),
-                &["container", "pid", "process"],
+                &["container", "pid", "process_name"],
             )
                 .expect("Failed to create process_up_time_seconds GaugeVec");
             registry
@@ -114,7 +114,7 @@ impl Metrics {
                         format!("jstat_{}_metrics", &cmd[1..]),
                         format!("Metrics from jstat {}", cmd),
                     ),
-                    &["container", "pid", "process", "metric"],
+                    &["container", "pid", "process_name", "metric_name"],
                 )
                     .expect(&format!("Failed to create GaugeVec for command {}", cmd));
                 registry

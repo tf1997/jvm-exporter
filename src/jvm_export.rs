@@ -5,11 +5,15 @@ use prometheus::{Encoder, GaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
-use std::{thread, time};
+use std::{fs, thread, time};
+use std::path::Path;
 use sysinfo::{Disks, Networks, System};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use warp::Filter;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class", "-compiler"];
 const EXCLUDED_PROCESSES: &[&str] = &["jps"];
@@ -721,7 +725,7 @@ async fn update_cpu_memory_metrics(
                     .process_metrics
                     .memory_usage
                     .with_label_values(&[container, pid_str, process])
-                    .set(process_info.memory() as f64 * 1024.0); // Convert KB to Bytes
+                    .set(process_info.memory() as f64); // Convert KB to Bytes
 
                 let process_memory_kb = process_info.memory() as f64;
                 let memory_usage_percentage = if total_memory_kb > 0.0 {
@@ -780,7 +784,7 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
 
     metrics
         .system_metrics
-        .memory_usage
+        .total_memory
         .with_label_values(&["total"])
         .set(system.total_memory() as f64);
 
@@ -1115,18 +1119,60 @@ fn merge_java_home(java_home: Option<&str>, command: &mut Command) -> Result<(),
 
 fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/jvm-exporter.service";
+    let binary_target_dir = "/usr/local/bin";
+    let binary_target_path = format!("{}/jvm-exporter", binary_target_dir);
 
-    let service_content = "[Unit]
+    let current_executable_path = std::env::current_exe()?;
+    println!(
+        "Current executable path: {}",
+        current_executable_path.display()
+    );
+
+    if !Path::new(binary_target_dir).exists() {
+        fs::create_dir_all(binary_target_dir)?;
+        println!("Target directory created: {}", binary_target_dir);
+    }
+
+    if !Path::new(&binary_target_path).exists() {
+        fs::copy(&current_executable_path, &binary_target_path)?;
+        println!("Executable copied to: {}", binary_target_path);
+    } else {
+        println!(
+            "Target binary already exists at {}. Skipping copy.",
+            binary_target_path
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        let metadata = fs::metadata(&binary_target_path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&binary_target_path, permissions)?;
+        println!("Permissions set to executable for: {}", binary_target_path);
+    }
+
+    let service_content = format!(
+        "[Unit]
 Description=JVM Exporter Service
 
 [Service]
-ExecStart=/usr/local/bin/jvm-exporter
+ExecStart={}
 
 [Install]
-WantedBy=multi-user.target".to_string();
+WantedBy=multi-user.target",
+        binary_target_path
+    );
 
-    let mut file = std::fs::File::create(service_path)?;
+    let service_dir = Path::new("/etc/systemd/system");
+    if !service_dir.exists() {
+        fs::create_dir_all(service_dir)?;
+        println!("Systemd directory created: {}", service_dir.display());
+    }
+
+    let mut file = fs::File::create(service_path)?;
     file.write_all(service_content.as_bytes())?;
+    println!("Service file created at: {}", service_path);
 
     std::process::Command::new("systemctl")
         .args(&["daemon-reload"])
@@ -1136,8 +1182,8 @@ WantedBy=multi-user.target".to_string();
         .args(&["enable", "jvm-exporter.service"])
         .output()?;
 
+
     println!("Service configured to auto-start with the system.");
-    println!("Service file created at: {}", service_path);
     println!("Use the following commands to manage the service:");
     println!("  Start service:    systemctl start jvm-exporter.service");
     println!("  Stop service:     systemctl stop jvm-exporter.service");

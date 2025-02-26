@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use clap::{App, Arg};

@@ -11,13 +11,27 @@ pub fn setup_routes(
     let metrics = Arc::new(metrics::metrics::Metrics::new(&registry));
 
     let metrics_route = warp::path("metrics")
-        .and_then(metrics::collect::setup_metrics_handlers(metrics.clone(), registry, Arc::clone(&java_home), full_path));
+        .and_then({
+            let metrics = Arc::clone(&metrics);
+            let registry = Arc::clone(&registry);
+            let java_home = Arc::clone(&java_home);
+            let full_path = full_path;
 
-    let deploy_route = warp::path("deploy")
-        .and(warp::post())
-        .and(warp::multipart::form().max_length(100_000_000_000))
-        .and_then(deploy::deploy::handle_deploy);
+            move || {
+                let metrics = Arc::clone(&metrics);
+                let registry = Arc::clone(&registry);
+                let java_home = java_home.clone();
+                let full_path = full_path;
 
-    metrics_route.or(deploy_route);
-    Ok(metrics_route).expect("TODO: panic message");
+                async move { metrics::collect::handle_metrics(metrics, registry, java_home, full_path).await }
+            }
+        });
+
+    // let deploy_route = warp::path("deploy")
+    //     .and(warp::post())
+    //     .and(warp::multipart::form().max_length(100_000_000_000))
+    //     .and_then(deploy::deploy::handle_deploy);
+
+    // metrics_route.or(deploy_route);
+    Ok::<_, warp::Rejection>(metrics_route).expect("TODO: panic message")
 }

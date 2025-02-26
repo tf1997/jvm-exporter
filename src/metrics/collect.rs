@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
 use log::{error, info, warn};
 use prometheus::{Encoder, GaugeVec, Registry};
@@ -6,29 +7,9 @@ use sysinfo::{Disks, Networks, System};
 use tokio::process::Command;
 use tokio::time;
 use warp::Filter;
-use crate::metrics;
-use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
+pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
 
-pub(crate) async fn setup_metrics_handlers(metrics: Arc<Metrics>,
-                                     registry: Arc<Registry>,
-                                     java_home: Arc<Option<String>>,
-                                     full_path: bool) -> impl Filter {
-    let metrics = Arc::clone(&metrics);
-    let registry = Arc::clone(&registry);
-    let java_home = Arc::clone(&java_home);
-    let full_path = full_path;
-
-    move || {
-        let metrics = Arc::clone(&metrics);
-        let registry = Arc::clone(&registry);
-        let java_home = java_home.clone();
-        let full_path = full_path;
-
-        async move { handle_metrics(metrics, registry, java_home, full_path).await }
-    }
-}
-
-async fn handle_metrics(
+pub(crate) async fn handle_metrics(
     metrics: Arc<Metrics>,
     registry: Arc<Registry>,
     java_home: Arc<Option<String>>,

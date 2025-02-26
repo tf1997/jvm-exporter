@@ -2,16 +2,16 @@ use std::collections::{HashMap, HashSet};
 use prometheus::{GaugeVec, Registry};
 use tokio::sync::Mutex;
 
-pub(crate) const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class", "-compiler"];
-pub(crate) const EXCLUDED_PROCESSES: &[&str] = &["jps"];
-pub(crate) struct Metrics {
+pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class", "-compiler"];
+pub const EXCLUDED_PROCESSES: &[&str] = &["jps"];
+pub struct Metrics {
     pub(crate) process_metrics: ProcessMetrics,
     pub(crate) system_metrics: SystemMetrics,
     pub(crate) active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
     pub(crate) jstat_labels: Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
 }
 
-struct ProcessMetrics {
+pub(crate) struct ProcessMetrics {
     pub(crate) cpu_usage: GaugeVec,
     pub(crate) memory_usage: GaugeVec,
     pub(crate) memory_usage_percentage: GaugeVec,
@@ -20,7 +20,7 @@ struct ProcessMetrics {
     pub(crate) jstat_metrics_map: HashMap<&'static str, GaugeVec>,
 }
 
-struct SystemMetrics {
+pub(crate) struct SystemMetrics {
     pub(crate) cpu_usage: GaugeVec,
     pub(crate) memory_usage: GaugeVec,
     pub(crate) total_memory: GaugeVec,

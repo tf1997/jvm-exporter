@@ -1,12 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
 use std::sync::Arc;
 use log::{error, info, warn};
 use prometheus::{Encoder, GaugeVec, Registry};
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Disks, System};
 use tokio::process::Command;
-use tokio::time;
-use warp::Filter;
 pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
 
 pub(crate) async fn handle_metrics(
@@ -110,19 +107,19 @@ async fn update_metrics(
             let pid = parts[1];
 
             // Remove CPU and Memory metrics
-            metrics.process_metrics
+            let _ = metrics.process_metrics
                 .cpu_usage
                 .remove_label_values(&[container, pid, process_name]);
-            metrics.process_metrics
+            let _ = metrics.process_metrics
                 .memory_usage
                 .remove_label_values(&[container, pid, process_name]);
-            metrics.process_metrics
+            let _ = metrics.process_metrics
                 .memory_usage_percentage
                 .remove_label_values(&[container, pid, process_name]);
-            metrics.process_metrics
+            let _ = metrics.process_metrics
                 .start_time
                 .remove_label_values(&[container, pid, process_name]);
-            metrics.process_metrics
+            let _ = metrics.process_metrics
                 .up_time
                 .remove_label_values(&[container, pid, process_name]);
 

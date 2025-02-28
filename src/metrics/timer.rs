@@ -11,11 +11,12 @@ pub fn run(metrics: Arc<Metrics>) {
         move || {
             let metrics = Arc::clone(&metrics);
             async move {
-                let mut network_task_interval = interval(Duration::from_millis(500));
+                let mut network_task_interval = interval(Duration::from_millis(3000));
                 loop {
-                    let mut networks = Networks::new_with_refreshed_list();
                     // 等待下一次 tick
                     network_task_interval.tick().await;
+                    let mut networks = Networks::new_with_refreshed_list();
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
                     networks.refresh();
                     for (interface_name, data) in &networks {
                         let received = data.received() as f64 * 10.0;
@@ -42,11 +43,12 @@ pub fn run(metrics: Arc<Metrics>) {
         move || {
             let metrics = Arc::clone(&metrics);
             async move {
-                let mut cpu_task_interval = interval(Duration::from_millis(100));
+                let mut cpu_task_interval = interval(Duration::from_millis(10000));
                 loop {
-                    let mut system = System::new_all();
                     // 等待下一次 tick
                     cpu_task_interval.tick().await;
+                    let mut system = System::new_all();
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                     system.refresh_cpu_all();
                     // Update CPU usage
                     for (i, processor) in system.cpus().iter().enumerate() {

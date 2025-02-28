@@ -4,7 +4,6 @@ use std::path::Path;
 use std::sync::Arc;
 use clap::{App, Arg};
 use env_logger::Env;
-use warp::Filter;
 use crate::routes::setup_routes;
 
 #[tokio::main]

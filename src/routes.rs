@@ -1,7 +1,7 @@
 use warp::Filter;
 use std::sync::Arc;
 use prometheus::Registry;
-use crate::{metrics, deploy};
+use crate::{metrics};
 
 pub fn setup_routes(
     java_home: Arc<Option<String>>,

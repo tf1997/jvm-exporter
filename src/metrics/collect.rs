@@ -54,7 +54,7 @@ async fn update_metrics(
     info!(
        "Detect and Collect Container Processes: {}",
        container_processes.len()
-   );
+    );
     let filtered_container_processes: Vec<ProcessInfo> = container_processes
         .into_iter()
         .filter(|proc_info| {
@@ -397,16 +397,6 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
     let mut system = System::new_all();
     system.refresh_all();
 
-    // Update CPU usage
-    for (i, processor) in system.cpus().iter().enumerate() {
-        let cpu_label = format!("cpu_{}", i);
-        metrics
-            .system_metrics
-            .cpu_usage
-            .with_label_values(&[&cpu_label])
-            .set(processor.cpu_usage() as f64);
-    }
-
     // Update Memory usage
     metrics
         .system_metrics
@@ -439,25 +429,6 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
             .total_disk
             .with_label_values(&[&disk_name, &mount_point])
             .set(total_space);
-    }
-
-    let mut networks = Networks::new_with_refreshed_list();
-    tokio::time::sleep(time::Duration::from_millis(100)).await;
-    networks.refresh();
-    for (interface_name, data) in &networks {
-        let received = data.received() as f64 * 10.0;
-        let transmitted = data.transmitted() as f64 * 10.0;
-        metrics
-            .system_metrics
-            .network_receive_bytes_per_sec
-            .with_label_values(&[interface_name])
-            .set(received);
-
-        metrics
-            .system_metrics
-            .network_transmit_bytes_per_sec
-            .with_label_values(&[interface_name])
-            .set(transmitted);
     }
 
     // Update System uptime

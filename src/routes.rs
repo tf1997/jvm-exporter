@@ -9,6 +9,7 @@ pub fn setup_routes(
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     let registry = Arc::new(Registry::new());
     let metrics = Arc::new(metrics::metrics::Metrics::new(&registry));
+    metrics::timer::run(metrics.clone());
 
     let metrics_route = warp::path("metrics")
         .and_then({

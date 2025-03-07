@@ -449,7 +449,7 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
-        if mount_point.contains("dokcer") || mount_point.contains("containerd") || mount_point.contains("kubelet") {
+        if mount_point.contains("docker") || mount_point.contains("containerd") || mount_point.contains("kubelet") {
             continue;
         }
         let total_space = disk.total_space() as f64;

@@ -1,12 +1,12 @@
-mod routes;
 mod monitor;
+mod routes;
 
-mod deploy{
+mod deploy {
     pub mod deploy;
 }
 mod metrics {
-    pub mod metrics;
     pub mod collect;
+    pub mod metrics;
     pub mod timer;
 }
 

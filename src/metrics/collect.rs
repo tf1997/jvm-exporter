@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
 use log::{error, info, warn};
 use prometheus::{Encoder, GaugeVec, Registry};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use sysinfo::{Disks, System};
 use tokio::process::Command;
-pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
 
 pub(crate) async fn handle_metrics(
     metrics: Arc<Metrics>,
@@ -19,7 +19,9 @@ pub(crate) async fn handle_metrics(
     let mut buffer = Vec::new();
     let encoder = prometheus::TextEncoder::new();
     let metric_families = registry.gather();
-    encoder.encode(&metric_families, &mut buffer).expect("Failed to encode metrics");
+    encoder
+        .encode(&metric_families, &mut buffer)
+        .expect("Failed to encode metrics");
 
     let response = warp::http::Response::builder()
         .header("Content-Type", encoder.format_type())
@@ -36,7 +38,10 @@ async fn update_metrics(
 
     // 1. Collect Host Processes
     let host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
-    info!("Detect and Collect Host Processes: {}", host_processes.len());
+    info!(
+        "Detect and Collect Host Processes: {}",
+        host_processes.len()
+    );
     for (pid, pname) in host_processes {
         all_processes.push(ProcessInfo {
             container: "host".to_string(),
@@ -49,17 +54,17 @@ async fn update_metrics(
     // 2. Detect and Collect Container Processes
     let container_processes = get_container_java_processes(java_home, full_path).await?;
     info!(
-       "Detect and Collect Container Processes: {}",
-       container_processes.len()
+        "Detect and Collect Container Processes: {}",
+        container_processes.len()
     );
     let filtered_container_processes: Vec<ProcessInfo> = container_processes
         .into_iter()
         .filter(|proc_info| {
             if host_process_names.contains(&proc_info.process) {
                 info!(
-                   "Skipping container process '{}' in '{}': already exists on host.",
-                   proc_info.process, proc_info.container
-               );
+                    "Skipping container process '{}' in '{}': already exists on host.",
+                    proc_info.process, proc_info.container
+                );
                 false
             } else {
                 true
@@ -68,9 +73,9 @@ async fn update_metrics(
         .collect();
 
     info!(
-       "Filtered Container Processes (excluding duplicates): {}",
-       filtered_container_processes.len()
-   );
+        "Filtered Container Processes (excluding duplicates): {}",
+        filtered_container_processes.len()
+    );
     all_processes.extend(filtered_container_processes);
 
     // Create a unique key for each process as "container#pid"
@@ -107,25 +112,39 @@ async fn update_metrics(
             let pid = parts[1];
 
             // Remove CPU and Memory metrics
-            let _ = metrics.process_metrics
-                .cpu_usage
-                .remove_label_values(&[container, pid, process_name]);
-            let _ = metrics.process_metrics
-                .memory_usage
-                .remove_label_values(&[container, pid, process_name]);
-            let _ = metrics.process_metrics
+            let _ = metrics.process_metrics.cpu_usage.remove_label_values(&[
+                container,
+                pid,
+                process_name,
+            ]);
+            let _ = metrics.process_metrics.memory_usage.remove_label_values(&[
+                container,
+                pid,
+                process_name,
+            ]);
+            let _ = metrics
+                .process_metrics
                 .memory_usage_percentage
                 .remove_label_values(&[container, pid, process_name]);
-            let _ = metrics.process_metrics
-                .start_time
-                .remove_label_values(&[container, pid, process_name]);
-            let _ = metrics.process_metrics
-                .up_time
-                .remove_label_values(&[container, pid, process_name]);
+            let _ = metrics.process_metrics.start_time.remove_label_values(&[
+                container,
+                pid,
+                process_name,
+            ]);
+            let _ = metrics.process_metrics.up_time.remove_label_values(&[
+                container,
+                pid,
+                process_name,
+            ]);
 
             // Remove jstat metrics
             for &command in JSTAT_COMMANDS.iter() {
-                let key_jstat = (command, container.to_string(), pid.to_string(), process_name.clone());
+                let key_jstat = (
+                    command,
+                    container.to_string(),
+                    pid.to_string(),
+                    process_name.clone(),
+                );
                 if let Some(metric_names) = jstat_labels.get(&key_jstat) {
                     if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command) {
                         for metric_name in metric_names.iter() {
@@ -187,16 +206,23 @@ async fn update_metrics(
                             metric,
                             java_home.as_deref(),
                         )
-                            .await
+                        .await
                         {
                             Ok(metric_names) => {
                                 // Record metric_names
                                 let mut jstat_labels = metrics.jstat_labels.lock().await;
-                                let key = (command, container.clone(), pid.clone(), process.clone());
-                                jstat_labels.entry(key).or_insert_with(HashSet::new).extend(metric_names);
+                                let key =
+                                    (command, container.clone(), pid.clone(), process.clone());
+                                jstat_labels
+                                    .entry(key)
+                                    .or_insert_with(HashSet::new)
+                                    .extend(metric_names);
                             }
                             Err(err) => {
-                                warn!("Failed to update {} metrics for PID {} ({} in {}): {}", command, pid, process, container, err);
+                                warn!(
+                                    "Failed to update {} metrics for PID {} ({} in {}): {}",
+                                    command, pid, process, container, err
+                                );
                             }
                         }
                     }
@@ -223,7 +249,10 @@ async fn fetch_and_update_jstat(
         command_host.args(&[command, pid, "1000", "1"]);
         if let Some(jh) = java_home {
             command_host.env("JAVA_HOME", jh);
-            command_host.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+            command_host.env(
+                "PATH",
+                format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()),
+            );
         }
         command_host
     } else {
@@ -233,7 +262,10 @@ async fn fetch_and_update_jstat(
             cmd_docker.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
             if let Some(jh) = java_home {
                 cmd_docker.env("JAVA_HOME", jh);
-                cmd_docker.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+                cmd_docker.env(
+                    "PATH",
+                    format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()),
+                );
             }
             cmd_docker
         } else if is_crictl_available().await {
@@ -241,11 +273,16 @@ async fn fetch_and_update_jstat(
             cmd_crictl.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
             if let Some(jh) = java_home {
                 cmd_crictl.env("JAVA_HOME", jh);
-                cmd_crictl.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+                cmd_crictl.env(
+                    "PATH",
+                    format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()),
+                );
             }
             cmd_crictl
         } else {
-            return Err("Neither Docker nor crictl is available to execute commands in containers".into());
+            return Err(
+                "Neither Docker nor crictl is available to execute commands in containers".into(),
+            );
         }
     };
 
@@ -258,7 +295,8 @@ async fn fetch_and_update_jstat(
             pid,
             container,
             String::from_utf8_lossy(&output.stderr)
-        ).into());
+        )
+        .into());
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -411,6 +449,9 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
+        if mount_point.contains("dokcer") || mount_point.contains("containerd") || mount_point.contains("kubelet") {
+            continue;
+        }
         let total_space = disk.total_space() as f64;
         let available_space = disk.available_space() as f64;
         let used_space = total_space - available_space;
@@ -475,7 +516,7 @@ async fn get_java_processes(
                 "jps failed for host: {}",
                 String::from_utf8_lossy(&output.stderr)
             )
-                .into());
+            .into());
         }
 
         let stdout = String::from_utf8(output.stdout)?;
@@ -490,7 +531,10 @@ async fn get_java_processes(
                     .last()
                     .unwrap_or(process_name_original);
 
-                if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+                if EXCLUDED_PROCESSES
+                    .iter()
+                    .any(|&excluded| excluded.eq_ignore_ascii_case(class_name))
+                {
                     continue;
                 }
 
@@ -518,12 +562,17 @@ async fn get_java_processes(
             cmd.args(&["exec", &container, "jps", "-l"]);
             info!("Executing jps inside crictl container: {}", container);
         } else {
-            return Err("Neither Docker nor crictl is available to execute commands in containers".into());
+            return Err(
+                "Neither Docker nor crictl is available to execute commands in containers".into(),
+            );
         }
 
         if let Some(jh) = java_home {
             cmd.env("JAVA_HOME", jh);
-            cmd.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+            cmd.env(
+                "PATH",
+                format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()),
+            );
         }
 
         let output = cmd.output().await?;
@@ -534,7 +583,7 @@ async fn get_java_processes(
                 container,
                 String::from_utf8_lossy(&output.stderr)
             )
-                .into());
+            .into());
         }
 
         let stdout = String::from_utf8(output.stdout)?;
@@ -549,7 +598,10 @@ async fn get_java_processes(
                     .last()
                     .unwrap_or(process_name_original);
 
-                if EXCLUDED_PROCESSES.iter().any(|&excluded| excluded.eq_ignore_ascii_case(class_name)) {
+                if EXCLUDED_PROCESSES
+                    .iter()
+                    .any(|&excluded| excluded.eq_ignore_ascii_case(class_name))
+                {
                     continue;
                 }
 
@@ -590,7 +642,10 @@ async fn is_crictl_available() -> bool {
 }
 
 // Get Java processes from all containers
-async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+async fn get_container_java_processes(
+    java_home: Option<&str>,
+    full_path: bool,
+) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     let mut container_processes = Vec::new();
 
     if is_docker_available().await {
@@ -607,7 +662,10 @@ async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) 
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to get Java processes for Docker container {}: {}", container, e);
+                    warn!(
+                        "Failed to get Java processes for Docker container {}: {}",
+                        container, e
+                    );
                 }
             }
         }
@@ -627,7 +685,10 @@ async fn get_container_java_processes(java_home: Option<&str>, full_path: bool) 
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to get Java processes for crictl container {}: {}", container, e);
+                    warn!(
+                        "Failed to get Java processes for crictl container {}: {}",
+                        container, e
+                    );
                 }
             }
         }
@@ -682,7 +743,8 @@ async fn list_docker_containers() -> Result<Vec<String>, Box<dyn std::error::Err
         return Err(format!(
             "Failed to list Docker containers: {}",
             String::from_utf8_lossy(&output.stderr)
-        ).into());
+        )
+        .into());
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -692,16 +754,14 @@ async fn list_docker_containers() -> Result<Vec<String>, Box<dyn std::error::Err
 
 // List crictl containers
 async fn list_crictl_containers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let output = Command::new("crictl")
-        .args(&["ps", "-q"])
-        .output()
-        .await?;
+    let output = Command::new("crictl").args(&["ps", "-q"]).output().await?;
 
     if !output.status.success() {
         return Err(format!(
             "Failed to list crictl containers: {}",
             String::from_utf8_lossy(&output.stderr)
-        ).into());
+        )
+        .into());
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -709,13 +769,16 @@ async fn list_crictl_containers() -> Result<Vec<String>, Box<dyn std::error::Err
     Ok(containers)
 }
 
-fn merge_java_home(java_home: Option<&str>, command: &mut Command) -> Result<(), Box<dyn std::error::Error>> {
+fn merge_java_home(
+    java_home: Option<&str>,
+    command: &mut Command,
+) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(jh) = java_home {
         command.env("JAVA_HOME", jh);
-        command.env("PATH", format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()));
+        command.env(
+            "PATH",
+            format!("{}/bin:{}", jh, std::env::var("PATH").unwrap_or_default()),
+        );
     }
     Ok(())
 }
-
-
-

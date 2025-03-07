@@ -1,8 +1,8 @@
+use crate::metrics::collect::Metrics;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{Networks, System};
 use tokio::time::interval;
-use crate::metrics::collect::Metrics;
 
 pub fn run(metrics: Arc<Metrics>) {
     let metrics = metrics.clone();
@@ -33,7 +33,7 @@ pub fn run(metrics: Arc<Metrics>) {
                             .with_label_values(&[interface_name])
                             .set(transmitted);
                     }
-                };
+                }
             }
         }
     }());
@@ -59,7 +59,7 @@ pub fn run(metrics: Arc<Metrics>) {
                             .with_label_values(&[&cpu_label])
                             .set(processor.cpu_usage() as f64);
                     }
-                };
+                }
             }
         }
     }());

@@ -1,7 +1,7 @@
-use warp::Filter;
-use std::sync::Arc;
+use crate::metrics;
 use prometheus::Registry;
-use crate::{metrics};
+use std::sync::Arc;
+use warp::Filter;
 
 pub fn setup_routes(
     java_home: Arc<Option<String>>,
@@ -11,22 +11,23 @@ pub fn setup_routes(
     let metrics = Arc::new(metrics::metrics::Metrics::new(&registry));
     metrics::timer::run(metrics.clone());
 
-    let metrics_route = warp::path("metrics")
-        .and_then({
+    let metrics_route = warp::path("metrics").and_then({
+        let metrics = Arc::clone(&metrics);
+        let registry = Arc::clone(&registry);
+        let java_home = Arc::clone(&java_home);
+        let full_path = full_path;
+
+        move || {
             let metrics = Arc::clone(&metrics);
             let registry = Arc::clone(&registry);
-            let java_home = Arc::clone(&java_home);
+            let java_home = java_home.clone();
             let full_path = full_path;
 
-            move || {
-                let metrics = Arc::clone(&metrics);
-                let registry = Arc::clone(&registry);
-                let java_home = java_home.clone();
-                let full_path = full_path;
-
-                async move { metrics::collect::handle_metrics(metrics, registry, java_home, full_path).await }
+            async move {
+                metrics::collect::handle_metrics(metrics, registry, java_home, full_path).await
             }
-        });
+        }
+    });
 
     // let deploy_route = warp::path("deploy")
     //     .and(warp::post())

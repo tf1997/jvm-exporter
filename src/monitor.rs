@@ -1,10 +1,10 @@
+use crate::routes::setup_routes;
+use clap::{App, Arg};
+use env_logger::Env;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
-use clap::{App, Arg};
-use env_logger::Env;
-use crate::routes::setup_routes;
 
 #[tokio::main]
 pub(crate) async fn main() {
@@ -14,18 +14,24 @@ pub(crate) async fn main() {
         .version("0.1")
         .author("tf1997")
         .about("Monitor the JVM metrics")
-        .arg(Arg::new("java_home")
-            .long("java-home")
-            .value_name("JAVA_HOME")
-            .help("Sets a custom JAVA_HOME")
-            .takes_value(true))
-        .arg(Arg::new("full_path")
-            .long("full-path")
-            .help("Only use class name instead of full package path in the process name")
-            .takes_value(false))
-        .arg(Arg::new("auto_start")
-            .long("auto-start")
-            .help("Configure the program to auto-start with the system"))
+        .arg(
+            Arg::new("java_home")
+                .long("java-home")
+                .value_name("JAVA_HOME")
+                .help("Sets a custom JAVA_HOME")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::new("full_path")
+                .long("full-path")
+                .help("Only use class name instead of full package path in the process name")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::new("auto_start")
+                .long("auto-start")
+                .help("Configure the program to auto-start with the system"),
+        )
         .get_matches();
 
     let java_home = matches.value_of("java_home").map(|s| s.to_string());
@@ -43,7 +49,7 @@ pub(crate) async fn main() {
 
     let addr = ([0, 0, 0, 0], 29090);
     let ip_addr = std::net::Ipv4Addr::from(addr.0);
-    let metrics_route= setup_routes(java_home, full_path);
+    let metrics_route = setup_routes(java_home, full_path);
 
     let server = warp::serve(metrics_route).bind((ip_addr, addr.1));
     let server_handle = tokio::spawn(server);
@@ -91,15 +97,6 @@ fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    #[cfg(unix)]
-    {
-        let metadata = fs::metadata(&binary_target_path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&binary_target_path, permissions)?;
-        println!("Permissions set to executable for: {}", binary_target_path);
-    }
-
     let service_content = format!(
         "[Unit]
 Description=JVM Exporter Service
@@ -129,7 +126,6 @@ WantedBy=multi-user.target",
     std::process::Command::new("systemctl")
         .args(&["enable", "jvm-exporter.service"])
         .output()?;
-
 
     println!("Service configured to auto-start with the system.");
     println!("Use the following commands to manage the service:");

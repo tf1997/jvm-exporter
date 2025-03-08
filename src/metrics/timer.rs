@@ -19,8 +19,8 @@ pub fn run(metrics: Arc<Metrics>) {
                     tokio::time::sleep(Duration::from_millis(1000)).await;
                     networks.refresh();
                     for (interface_name, data) in &networks {
-                        let received = data.received() as f64 * 10.0;
-                        let transmitted = data.transmitted() as f64 * 10.0;
+                        let received = data.received() as f64;
+                        let transmitted = data.transmitted() as f64;
                         metrics
                             .system_metrics
                             .network_receive_bytes_per_sec

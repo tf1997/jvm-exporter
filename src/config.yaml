@@ -1,4 +1,4 @@
-log_level: INFO
+log_level: ERROR
 system_processes:
  - Notability
  - WindowServer

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::sync::{Arc, RwLock};
 use warp::Filter;
-use reqwest::Client;
+use ureq;
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
@@ -19,16 +19,6 @@ impl Config {
         let config: Config = serde_yaml::from_str(&config_content)?;
         Ok(config)
     }
-
-    pub fn default() -> Result<Self, Box<dyn std::error::Error>> {
-        let config = Config {
-            log_level: None,
-            java_home: None,
-            configuration_service_url: None,
-            system_processes: None,
-        };
-        Ok(config)
-    }
 }
 
 pub fn with_config(
@@ -38,8 +28,8 @@ pub fn with_config(
 }
 
 pub async fn fetch_and_merge_config(url: &str, config: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new();
-    let remote_config: Config = client.get(url).send().await?.json().await?;
+    let response = ureq::get(url).call()?.into_string()?;
+    let remote_config: Config = serde_yaml::from_str(&response)?;
     if remote_config.log_level.is_some() {
         config.log_level = remote_config.log_level;
     }

@@ -1,6 +1,7 @@
 pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
 use log::{error, info, warn};
 use prometheus::{Encoder, GaugeVec, Registry};
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use sysinfo::{Disks, System};
@@ -77,6 +78,27 @@ async fn update_metrics(
         filtered_container_processes.len()
     );
     all_processes.extend(filtered_container_processes);
+
+    // 3. Collect System Processes from Config
+    let config = metrics.config.read().unwrap().clone();
+    if let Some(system_processes) = &config.system_processes {
+        let system_processes_regex: Vec<Regex> = system_processes
+            .iter()
+            .filter_map(|pattern| Regex::new(pattern).ok())
+            .collect();
+
+        let system = System::new_all();
+        for (pid, process) in system.processes() {
+            let process_name = process.name().to_str().unwrap_or_default().to_string();
+            if system_processes_regex.iter().any(|re| re.is_match(&process_name)) {
+                all_processes.push(ProcessInfo {
+                    container: "system".to_string(),
+                    pid: pid.to_string(),
+                    process: process_name,
+                });
+            }
+        }
+    }
 
     // Create a unique key for each process as "container#pid"
     let current_pids: HashMap<String, String> = all_processes
@@ -182,13 +204,13 @@ async fn update_metrics(
     // Update jstat metrics
     let tasks: Vec<_> = all_processes
         .into_iter()
+        .filter(|proc_info| proc_info.container != "system")
         .flat_map(|proc_info| {
             let metrics = Arc::clone(&metrics);
             let java_home = java_home.map(|s| s.to_string());
             let container = proc_info.container.clone();
             let pid = proc_info.pid.clone();
             let process = proc_info.process.clone();
-
             JSTAT_COMMANDS.iter().map(move |&command| {
                 let metrics = Arc::clone(&metrics);
                 let java_home = java_home.clone();
@@ -228,6 +250,7 @@ async fn update_metrics(
                     }
                 })
             })
+            .collect::<Vec<_>>()
         })
         .collect();
 

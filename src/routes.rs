@@ -1,14 +1,16 @@
+use crate::config::{Config, with_config};
 use crate::metrics;
 use prometheus::Registry;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use warp::Filter;
 
 pub fn setup_routes(
     java_home: Arc<Option<String>>,
     full_path: bool,
+    config: Arc<RwLock<Config>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     let registry = Arc::new(Registry::new());
-    let metrics = Arc::new(metrics::metrics::Metrics::new(&registry));
+    let metrics = Arc::new(metrics::metrics::Metrics::new(&registry, config.clone()));
     metrics::timer::run(metrics.clone());
 
     let metrics_route = warp::path("metrics").and_then({
@@ -29,11 +31,30 @@ pub fn setup_routes(
         }
     });
 
+    let config_route = warp::path("config")
+        .and(warp::get())
+        .and(with_config(config.clone()))
+        .map(|config: Arc<RwLock<Config>>| {
+            let config = config.read().unwrap();
+            let config_data = (*config).clone();
+            warp::reply::json(&config_data)
+        })
+        .or(warp::path("config")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and(with_config(config.clone()))
+            .map(|new_config: Config, config: Arc<RwLock<Config>>| {
+                let mut config = config.write().unwrap();
+                *config = new_config;
+                warp::reply::json(&*config)
+            }));
+    
+
     // let deploy_route = warp::path("deploy")
     //     .and(warp::post())
     //     .and(warp::multipart::form().max_length(100_000_000_000))
     //     .and_then(deploy::deploy::handle_deploy);
 
-    // metrics_route.or(deploy_route);
-    Ok::<_, warp::Rejection>(metrics_route).expect("TODO: panic message")
+    let routes = metrics_route.or(config_route);
+    Ok::<_, warp::Rejection>(routes).expect("TODO: panic message")
 }

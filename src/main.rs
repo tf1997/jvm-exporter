@@ -1,5 +1,6 @@
 mod monitor;
 mod routes;
+mod config;
 
 mod deploy {
     pub mod deploy;

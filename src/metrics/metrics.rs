@@ -1,10 +1,13 @@
+use crate::config::Config;
 use prometheus::{GaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::Mutex;
+use std::sync::{Arc, RwLock};
 
 pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
 pub const EXCLUDED_PROCESSES: &[&str] = &["jps"];
 pub struct Metrics {
+    pub(crate) config: Arc<RwLock<Config>>,
     pub(crate) process_metrics: ProcessMetrics,
     pub(crate) system_metrics: SystemMetrics,
     pub(crate) active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
@@ -35,7 +38,7 @@ pub(crate) struct SystemMetrics {
 }
 
 impl Metrics {
-    pub(crate) fn new(registry: &Registry) -> Self {
+    pub(crate) fn new(registry: &Registry, config: Arc<RwLock<Config>>) -> Self {
         // Initialize Process Metrics
         let process_metrics = {
             // CPU Usage
@@ -260,6 +263,7 @@ impl Metrics {
             system_metrics,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
+            config,
         }
     }
 }

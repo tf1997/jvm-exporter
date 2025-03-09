@@ -1,19 +1,35 @@
+use crate::config::{Config, fetch_and_merge_config};
 use crate::routes::setup_routes;
 use clap::{App, Arg};
 use env_logger::Env;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 pub(crate) async fn main() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info,warp=info")).init();
+    let mut config = Config::new("/Users/tengfei.chu/Code/jvm-exporter/src/config.yaml").unwrap_or_else(|_| Config {
+        log_level: None,
+        java_home: None,
+        configuration_service_url: None,
+        system_processes: None,
+    });
+
+    let configuration_service_url = config.configuration_service_url.clone();
+    if let Some(configuration_service_url) = configuration_service_url {
+        if let Err(e) = fetch_and_merge_config(&configuration_service_url, &mut config).await {
+            eprintln!("Failed to fetch configuration from configuration service: {}", e);
+        }
+    }
+
+    let log_level = config.log_level.clone().unwrap_or_else(|| "info,warp=info".to_string());
+    env_logger::Builder::from_env(Env::default().default_filter_or(&log_level)).init();
 
     let matches = App::new("jvm-exporter")
-        .version("0.1")
+        .version("0.3.5")
         .author("tf1997")
-        .about("Monitor the JVM metrics")
+        .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
         .arg(
             Arg::new("java_home")
                 .long("java-home")
@@ -44,14 +60,15 @@ pub(crate) async fn main() {
         }
     }
 
+    let config = Arc::new(RwLock::new(config));
+
     // Encapsulate shared data into Arc
     let java_home = Arc::new(java_home);
 
     let addr = ([0, 0, 0, 0], 29090);
     let ip_addr = std::net::Ipv4Addr::from(addr.0);
-    let metrics_route = setup_routes(java_home, full_path);
-
-    let server = warp::serve(metrics_route).bind((ip_addr, addr.1));
+    let routes = setup_routes(java_home, full_path, config.clone());
+    let server = warp::serve(routes).bind((ip_addr, addr.1));
     let server_handle = tokio::spawn(server);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -121,10 +138,6 @@ WantedBy=multi-user.target",
 
     std::process::Command::new("systemctl")
         .args(&["daemon-reload"])
-        .output()?;
-
-    std::process::Command::new("systemctl")
-        .args(&["enable", "jvm-exporter.service"])
         .output()?;
 
     println!("Service configured to auto-start with the system.");

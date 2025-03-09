@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 pub(crate) async fn main() {
-    let mut config = Config::new("config.yaml").unwrap_or_else(|_| Config {
+    let mut config = Config::new("/usr/local/jvm-exporter/config.yml").unwrap_or_else(|_| Config {
         log_level: None,
         java_home: None,
         configuration_service_url: None,

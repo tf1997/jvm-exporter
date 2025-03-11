@@ -1,4 +1,6 @@
 log_level: ERROR
 system_processes:
- - Notability
+ - apple.Ap
  - WindowServer
+ - LM Studio Helper
+ - *Google Chrome*

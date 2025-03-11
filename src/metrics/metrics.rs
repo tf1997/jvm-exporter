@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::Mutex;
 use std::sync::{Arc, RwLock};
 
-pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-gcutil", "-class"];
+pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-class"];
 pub const EXCLUDED_PROCESSES: &[&str] = &["jps"];
 pub struct Metrics {
     pub(crate) config: Arc<RwLock<Config>>,

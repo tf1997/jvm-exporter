@@ -1,6 +1,7 @@
 log_level: ERROR
 system_processes:
- - apple.Ap
- - WindowServer
- - LM Studio Helper
- - *Google Chrome*
+  - "*WindowServer*"
+  - "LM Studio"
+  - "Google Chrome*"
+  - "*clash-verge*"
+  - "*idea*"

@@ -384,6 +384,14 @@ async fn update_cpu_memory_metrics(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut system = System::new_all();
     system.refresh_all();
+
+    tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        sysinfo::ProcessRefreshKind::nothing().with_cpu(),
+    );
     let total_memory_kb = system.total_memory() as f64;
 
     for proc_info in processes.iter() {

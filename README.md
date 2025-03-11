@@ -65,7 +65,7 @@ Start the JVM Exporter with configurable command-line arguments:
 
 ### configurable yaml file
 
-The Configurable yaml file need to be placed in `/usr/local/jvm-exporter/config.yml`
+The Configurable yaml file need to be placed in `/usr/local/jvm-exporter/config.yaml`
 
 ```yaml
 configuration_service_url: http://127.0.0.1:29090/config

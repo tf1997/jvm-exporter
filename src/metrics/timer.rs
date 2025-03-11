@@ -19,7 +19,7 @@ pub fn run(metrics: Arc<Metrics>) {
                         _ = network_task_interval.tick() => {
                             let mut networks = Networks::new_with_refreshed_list();
                             tokio::time::sleep(Duration::from_millis(1000)).await;
-                            networks.refresh();
+                            networks.refresh(true);
                             for (interface_name, data) in &networks {
                                 let received = data.received() as f64;
                                 let transmitted = data.transmitted() as f64;
@@ -38,7 +38,8 @@ pub fn run(metrics: Arc<Metrics>) {
                         },
                         _ = cpu_task_interval.tick() => {
                             let mut system = System::new_all();
-                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            
+                            tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
                             system.refresh_cpu_all();
                             // Update CPU usage
                             for (i, processor) in system.cpus().iter().enumerate() {

@@ -4,7 +4,7 @@ use prometheus::{Encoder, GaugeVec, Registry};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use sysinfo::{Disks, System};
+use sysinfo::{Disks, Pid, System};
 use tokio::process::Command;
 
 pub(crate) async fn handle_metrics(
@@ -90,7 +90,9 @@ async fn update_metrics(
         let system = System::new_all();
         for (pid, process) in system.processes() {
             let process_name = process.name().to_str().unwrap_or_default().to_string();
-            if system_processes_regex.iter().any(|re| re.is_match(&process_name)) {
+            let ppid = process.parent().unwrap_or(Pid::from_u32(0)).as_u32();
+            if system_processes_regex.iter().any(|re| re.is_match(&process_name)) && ppid == 1u32 {
+                info!("System process detected: PID={}, Process={}", pid, process_name);
                 all_processes.push(ProcessInfo {
                     container: "system".to_string(),
                     pid: pid.to_string(),

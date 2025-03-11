@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 pub(crate) async fn main() {
-    let mut config = Config::new("/usr/local/jvm-exporter/config.yml").unwrap_or_else(|_| Config {
+    let mut config = Config::new("/usr/local/jvm-exporter/config.yaml").unwrap_or_else(|_| Config {
         log_level: None,
         java_home: None,
         configuration_service_url: None,
@@ -103,28 +103,47 @@ fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(binary_target_dir)?;
         println!("Target directory created: {}", binary_target_dir);
     }
+    
+    fs::copy(&current_executable_path, &binary_target_path)?;
+    println!("Executable copied to: {}", binary_target_path);
 
-    if !Path::new(&binary_target_path).exists() {
-        fs::copy(&current_executable_path, &binary_target_path)?;
-        println!("Executable copied to: {}", binary_target_path);
-    } else {
-        println!(
-            "Target binary already exists at {}. Skipping copy.",
-            binary_target_path
-        );
-    }
+    let java_home = std::env::var("JAVA_HOME").ok();
 
-    let service_content = format!(
-        "[Unit]
+    let service_content = if let Some(jh) = java_home {
+        format!(
+            "[Unit]
 Description=JVM Exporter Service
+After=network.target
 
 [Service]
+Type=simple
 ExecStart={}
 User=root
+Environment=\"JAVA_HOME={}\"
+Environment=\"PATH={}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"
+Restart=on-failure
+
 [Install]
 WantedBy=multi-user.target",
-        binary_target_path
-    );
+            binary_target_path, jh, jh
+        )
+    } else {
+        format!(
+            "[Unit]
+Description=JVM Exporter Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={}
+User=root
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target",
+            binary_target_path
+        )
+    };
 
     let service_dir = Path::new("/etc/systemd/system");
     if !service_dir.exists() {

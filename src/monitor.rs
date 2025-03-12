@@ -14,6 +14,7 @@ pub(crate) async fn main() {
         java_home: None,
         configuration_service_url: None,
         system_processes: None,
+        detect_docker_processes: None,
     });
 
     let configuration_service_url = config.configuration_service_url.clone();
@@ -22,6 +23,7 @@ pub(crate) async fn main() {
             eprintln!("Failed to fetch configuration from configuration service: {}", e);
         }
     }
+
 
     let log_level = config.log_level.clone().unwrap_or_else(|| "info,warp=info".to_string());
     env_logger::Builder::from_env(Env::default().default_filter_or(&log_level)).init();
@@ -155,6 +157,14 @@ WantedBy=multi-user.target",
     file.write_all(service_content.as_bytes())?;
     println!("Service file created at: {}", service_path);
 
+    std::process::Command::new("systemctl")
+        .args(&["daemon-reload"])
+        .output()?;
+
+    std::process::Command::new("systemctl")
+        .args(&["enable", "jvm-exporter.service"])
+        .output()?;
+
     println!("Service configured to auto-start with the system.");
     println!("Use the following commands to manage the service:");
     println!("  Start service:    systemctl start jvm-exporter.service");
@@ -164,5 +174,5 @@ WantedBy=multi-user.target",
     println!("  Disable service on boot: systemctl disable jvm-exporter.service");
     println!("  Reload daemon after changes: systemctl daemon-reload");
 
-    Ok(())
+    std::process::exit(0);
 }

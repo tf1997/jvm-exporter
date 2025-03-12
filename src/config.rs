@@ -11,12 +11,16 @@ pub struct Config {
     pub java_home: Option<String>,
     pub configuration_service_url: Option<String>,
     pub system_processes: Option<Vec<String>>,
+    pub detect_docker_processes: Option<bool>,
 }
 
 impl Config {
     pub fn new(file_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let config_content = fs::read_to_string(file_path)?;
-        let config: Config = serde_yaml::from_str(&config_content)?;
+        let mut config: Config = serde_yaml::from_str(&config_content)?;
+        if config.detect_docker_processes.is_none() {
+            config.detect_docker_processes = Some(false);
+        }
         Ok(config)
     }
 }

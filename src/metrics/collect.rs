@@ -53,7 +53,7 @@ async fn update_metrics(
     }
 
     // 2. Detect and Collect Container Processes
-    let container_processes = get_container_java_processes(java_home, full_path).await?;
+    let container_processes = get_container_java_processes(metrics.clone(), java_home, full_path).await?;
     info!(
         "Detect and Collect Container Processes: {}",
         container_processes.len()
@@ -91,8 +91,15 @@ async fn update_metrics(
         for (pid, process) in system.processes() {
             let process_name = process.name().to_str().unwrap_or_default().to_string();
             let ppid = process.parent().unwrap_or(Pid::from_u32(0)).as_u32();
-            if system_processes_regex.iter().any(|re| re.is_match(&process_name)) && ppid == 1u32 {
-                info!("System process detected: PID={}, Process={}", pid, process_name);
+            if system_processes_regex
+                .iter()
+                .any(|re| re.is_match(&process_name))
+                && ppid == 1u32
+            {
+                info!(
+                    "System process detected: PID={}, Process={}",
+                    pid, process_name
+                );
                 all_processes.push(ProcessInfo {
                     container: "system".to_string(),
                     pid: pid.to_string(),
@@ -213,46 +220,49 @@ async fn update_metrics(
             let container = proc_info.container.clone();
             let pid = proc_info.pid.clone();
             let process = proc_info.process.clone();
-            JSTAT_COMMANDS.iter().map(move |&command| {
-                let metrics = Arc::clone(&metrics);
-                let java_home = java_home.clone();
-                let container = container.clone();
-                let pid = pid.clone();
-                let process = process.clone();
+            JSTAT_COMMANDS
+                .iter()
+                .map(move |&command| {
+                    let metrics = Arc::clone(&metrics);
+                    let java_home = java_home.clone();
+                    let container = container.clone();
+                    let pid = pid.clone();
+                    let process = process.clone();
 
-                tokio::spawn(async move {
-                    if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command) {
-                        match fetch_and_update_jstat(
-                            &container,
-                            &pid,
-                            &process,
-                            command,
-                            metric,
-                            java_home.as_deref(),
-                        )
-                        .await
+                    tokio::spawn(async move {
+                        if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command)
                         {
-                            Ok(metric_names) => {
-                                // Record metric_names
-                                let mut jstat_labels = metrics.jstat_labels.lock().await;
-                                let key =
-                                    (command, container.clone(), pid.clone(), process.clone());
-                                jstat_labels
-                                    .entry(key)
-                                    .or_insert_with(HashSet::new)
-                                    .extend(metric_names);
-                            }
-                            Err(err) => {
-                                warn!(
-                                    "Failed to update {} metrics for PID {} ({} in {}): {}",
-                                    command, pid, process, container, err
-                                );
+                            match fetch_and_update_jstat(
+                                &container,
+                                &pid,
+                                &process,
+                                command,
+                                metric,
+                                java_home.as_deref(),
+                            )
+                            .await
+                            {
+                                Ok(metric_names) => {
+                                    // Record metric_names
+                                    let mut jstat_labels = metrics.jstat_labels.lock().await;
+                                    let key =
+                                        (command, container.clone(), pid.clone(), process.clone());
+                                    jstat_labels
+                                        .entry(key)
+                                        .or_insert_with(HashSet::new)
+                                        .extend(metric_names);
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Failed to update {} metrics for PID {} ({} in {}): {}",
+                                        command, pid, process, container, err
+                                    );
+                                }
                             }
                         }
-                    }
+                    })
                 })
-            })
-            .collect::<Vec<_>>()
+                .collect::<Vec<_>>()
         })
         .collect();
 
@@ -482,7 +492,10 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
-        if mount_point.contains("docker") || mount_point.contains("containerd") || mount_point.contains("kubelet") {
+        if mount_point.contains("docker")
+            || mount_point.contains("containerd")
+            || mount_point.contains("kubelet")
+        {
             continue;
         }
         let total_space = disk.total_space() as f64;
@@ -676,11 +689,20 @@ async fn is_crictl_available() -> bool {
 
 // Get Java processes from all containers
 async fn get_container_java_processes(
+    metrics: Arc<Metrics>,
     java_home: Option<&str>,
     full_path: bool,
 ) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     let mut container_processes = Vec::new();
-
+    if !metrics
+        .config
+        .read()
+        .unwrap()
+        .detect_docker_processes
+        .unwrap_or_default()
+    {
+        return Ok(container_processes);
+    }
     if is_docker_available().await {
         let containers = list_docker_containers().await?;
         for container in containers {

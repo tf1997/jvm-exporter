@@ -53,7 +53,8 @@ async fn update_metrics(
     }
 
     // 2. Detect and Collect Container Processes
-    let container_processes = get_container_java_processes(metrics.clone(), java_home, full_path).await?;
+    let container_processes =
+        get_container_java_processes(metrics.clone(), java_home, full_path).await?;
     info!(
         "Detect and Collect Container Processes: {}",
         container_processes.len()
@@ -464,6 +465,28 @@ async fn update_cpu_memory_metrics(
                     .up_time
                     .with_label_values(&[container, pid_str, process])
                     .set(up_time_secs);
+
+                for (_, process) in system.processes() {
+                    println!(
+                        "Process {:?} {:?}",
+                        process.pid(),
+                        process.open_files_limit(),
+                    );
+                }
+
+                let open_file = process_info.open_files().unwrap_or(0) as f64;
+                let open_file_limit = process_info.open_files_limit().unwrap_or(0) as f64;
+                metrics
+                    .process_metrics
+                    .open_file
+                    .with_label_values(&[container, pid_str, process])
+                    .set(open_file);
+
+                metrics
+                    .process_metrics
+                    .open_file_limit
+                    .with_label_values(&[container, pid_str, process])
+                    .set(open_file_limit);
             }
         }
     }
@@ -474,7 +497,6 @@ async fn update_cpu_memory_metrics(
 async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std::error::Error>> {
     let mut system = System::new_all();
     system.refresh_all();
-
     // Update Memory usage
     metrics
         .system_metrics
@@ -535,6 +557,30 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
         .swap_usage
         .with_label_values(&["used"])
         .set(system.used_swap() as f64);
+
+    let open_file = system
+        .processes()
+        .iter()
+        .map(|(_, process)| process.open_files().unwrap_or(0) as f64)
+        .sum::<f64>();
+
+    let open_file_limit = system
+        .processes()
+        .iter()
+        .map(|(_, process)| process.open_files_limit().unwrap_or(0) as f64)
+        .sum::<f64>();
+
+    metrics
+        .system_metrics
+        .open_file
+        .with_label_values(&["system"])
+        .set(open_file);
+
+    metrics
+        .system_metrics
+        .open_file_limit
+        .with_label_values(&["system"])
+        .set(open_file_limit);
 
     Ok(())
 }

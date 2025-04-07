@@ -1,8 +1,8 @@
 use crate::config::Config;
 use prometheus::{GaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
-use tokio::sync::Mutex;
 use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex;
 
 pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-class"];
 pub const EXCLUDED_PROCESSES: &[&str] = &["jps"];
@@ -21,6 +21,8 @@ pub(crate) struct ProcessMetrics {
     pub(crate) memory_usage_percentage: GaugeVec,
     pub(crate) start_time: GaugeVec,
     pub(crate) up_time: GaugeVec,
+    pub(crate) open_file: GaugeVec,
+    pub(crate) open_file_limit: GaugeVec,
     pub(crate) jstat_metrics_map: HashMap<&'static str, GaugeVec>,
 }
 
@@ -35,6 +37,8 @@ pub(crate) struct SystemMetrics {
     pub(crate) uptime: GaugeVec,
     pub(crate) total_swap: GaugeVec,
     pub(crate) swap_usage: GaugeVec,
+    pub(crate) open_file: GaugeVec,
+    pub(crate) open_file_limit: GaugeVec,
 }
 
 impl Metrics {
@@ -120,6 +124,24 @@ impl Metrics {
                 jstat_metrics_map.insert(cmd, metric);
             }
 
+            let open_file = GaugeVec::new(
+                prometheus::Opts::new("process_open_file", "Used open file descriptors"),
+                &["container", "pid", "process_name"],
+            )
+            .expect("Failed to create process_open_file GaugeVec");
+            registry
+                .register(Box::new(open_file.clone()))
+                .expect("Failed to register process_open_file metric");
+
+            let open_file_limit = GaugeVec::new(
+                prometheus::Opts::new("process_open_file_limit", "Max open file descriptors"),
+                &["container", "pid", "process_name"],
+            )
+            .expect("Failed to create process_open_file_limit GaugeVec");
+            registry
+                .register(Box::new(open_file_limit.clone()))
+                .expect("Failed to register process_open_file_limit metric");
+
             ProcessMetrics {
                 cpu_usage,
                 memory_usage,
@@ -127,6 +149,8 @@ impl Metrics {
                 start_time,
                 up_time,
                 jstat_metrics_map,
+                open_file,
+                open_file_limit,
             }
         };
 
@@ -244,6 +268,24 @@ impl Metrics {
                 .register(Box::new(swap_usage.clone()))
                 .expect("Failed to register system_swap_usage metric");
 
+            let open_file = GaugeVec::new(
+                prometheus::Opts::new("system_open_file", "Used open file descriptors"),
+                &["type"],
+            )
+            .expect("Failed to create system_open_file GaugeVec");
+            registry
+                .register(Box::new(open_file.clone()))
+                .expect("Failed to register system_open_file metric");
+
+            let open_file_limit = GaugeVec::new(
+                prometheus::Opts::new("system_open_file_limit", "Max open file descriptors"),
+                &["type"],
+            )
+            .expect("Failed to create system_open_file_limit GaugeVec");
+            registry
+                .register(Box::new(open_file_limit.clone()))
+                .expect("Failed to register system_open_file_limit metric");
+
             SystemMetrics {
                 cpu_usage,
                 memory_usage,
@@ -255,6 +297,8 @@ impl Metrics {
                 uptime,
                 total_swap,
                 swap_usage,
+                open_file,
+                open_file_limit,
             }
         };
 

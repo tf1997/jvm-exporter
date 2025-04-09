@@ -169,6 +169,18 @@ async fn update_metrics(
                 process_name,
             ]);
 
+            let _ = metrics.process_metrics.open_file.remove_label_values(&[
+                container,
+                pid,
+                process_name,
+            ]);
+
+            let _ = metrics.process_metrics.open_file_limit.remove_label_values(&[
+                container,
+                pid,
+                process_name,
+            ]);
+
             // Remove jstat metrics
             for &command in JSTAT_COMMANDS.iter() {
                 let key_jstat = (

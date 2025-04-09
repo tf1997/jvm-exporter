@@ -1,4 +1,4 @@
-use crate::config::{Config, fetch_and_merge_config};
+use crate::config::{fetch_and_merge_config, Config};
 use crate::routes::setup_routes;
 use clap::{App, Arg};
 use env_logger::Env;
@@ -9,23 +9,29 @@ use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 pub(crate) async fn main() {
-    let mut config = Config::new("/usr/local/jvm-exporter/config.yaml").unwrap_or_else(|_| Config {
-        log_level: None,
-        java_home: None,
-        configuration_service_url: None,
-        system_processes: None,
-        detect_docker_processes: None,
-    });
+    let mut config =
+        Config::new("/usr/local/jvm-exporter/config.yaml").unwrap_or_else(|_| Config {
+            log_level: None,
+            java_home: None,
+            configuration_service_url: None,
+            system_processes: None,
+            detect_docker_processes: None,
+        });
 
     let configuration_service_url = config.configuration_service_url.clone();
     if let Some(configuration_service_url) = configuration_service_url {
         if let Err(e) = fetch_and_merge_config(&configuration_service_url, &mut config).await {
-            eprintln!("Failed to fetch configuration from configuration service: {}", e);
+            eprintln!(
+                "Failed to fetch configuration from configuration service: {}",
+                e
+            );
         }
     }
 
-
-    let log_level = config.log_level.clone().unwrap_or_else(|| "info,warp=info".to_string());
+    let log_level = config
+        .log_level
+        .clone()
+        .unwrap_or_else(|| "info,warp=info".to_string());
     env_logger::Builder::from_env(Env::default().default_filter_or(&log_level)).init();
 
     let matches = App::new("jvm-exporter")
@@ -105,7 +111,7 @@ fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(binary_target_dir)?;
         println!("Target directory created: {}", binary_target_dir);
     }
-    
+
     fs::copy(&current_executable_path, &binary_target_path)?;
     println!("Executable copied to: {}", binary_target_path);
 

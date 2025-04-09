@@ -23,6 +23,7 @@ pub(crate) struct ProcessMetrics {
     pub(crate) up_time: GaugeVec,
     pub(crate) open_file: GaugeVec,
     pub(crate) open_file_limit: GaugeVec,
+    pub(crate) tcp_connection_states: GaugeVec,
     pub(crate) jstat_metrics_map: HashMap<&'static str, GaugeVec>,
 }
 
@@ -39,6 +40,7 @@ pub(crate) struct SystemMetrics {
     pub(crate) swap_usage: GaugeVec,
     pub(crate) open_file: GaugeVec,
     pub(crate) open_file_limit: GaugeVec,
+    pub(crate) tcp_connection_states: GaugeVec,
 }
 
 impl Metrics {
@@ -142,6 +144,18 @@ impl Metrics {
                 .register(Box::new(open_file_limit.clone()))
                 .expect("Failed to register process_open_file_limit metric");
 
+            let tcp_connection_states = GaugeVec::new(
+                prometheus::Opts::new(
+                    "process_tcp_connection_states",
+                    "Number of TCP connections in different states for the process",
+                ),
+                &["container", "pid", "process", "state"], // 添加 state 标签
+            )
+            .expect("Failed to create process_tcp_connection_states GaugeVec");
+            registry
+                .register(Box::new(tcp_connection_states.clone()))
+                .expect("Failed to register process_tcp_connection_states metric");
+
             ProcessMetrics {
                 cpu_usage,
                 memory_usage,
@@ -151,6 +165,7 @@ impl Metrics {
                 jstat_metrics_map,
                 open_file,
                 open_file_limit,
+                tcp_connection_states,
             }
         };
 
@@ -286,6 +301,18 @@ impl Metrics {
                 .register(Box::new(open_file_limit.clone()))
                 .expect("Failed to register system_open_file_limit metric");
 
+            let tcp_connection_states = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_tcp_connection_states",
+                    "Number of TCP connections in different states for the system",
+                ),
+                &["type", "state"], // 添加 state 标签
+            )
+            .expect("Failed to create system_tcp_connection_states GaugeVec");
+            registry
+                .register(Box::new(tcp_connection_states.clone()))
+                .expect("Failed to register system_tcp_connection_states metric");
+
             SystemMetrics {
                 cpu_usage,
                 memory_usage,
@@ -299,6 +326,7 @@ impl Metrics {
                 swap_usage,
                 open_file,
                 open_file_limit,
+                tcp_connection_states,
             }
         };
 

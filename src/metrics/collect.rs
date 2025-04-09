@@ -1,5 +1,6 @@
 pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
 use log::{error, info, warn};
+use netstat::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
 use prometheus::{Encoder, GaugeVec, Registry};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -175,11 +176,15 @@ async fn update_metrics(
                 process_name,
             ]);
 
-            let _ = metrics.process_metrics.open_file_limit.remove_label_values(&[
-                container,
-                pid,
-                process_name,
-            ]);
+            let _ = metrics
+                .process_metrics
+                .open_file_limit
+                .remove_label_values(&[container, pid, process_name]);
+            
+            let _ = metrics
+                .process_metrics
+                .tcp_connection_states
+                .remove_label_values(&[container, pid, process_name]);
 
             // Remove jstat metrics
             for &command in JSTAT_COMMANDS.iter() {
@@ -417,6 +422,11 @@ async fn update_cpu_memory_metrics(
     );
     let total_memory_kb = system.total_memory() as f64;
 
+    let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+    let proto_flags = ProtocolFlags::TCP;
+
+    let sockets = get_sockets_info(af_flags, proto_flags)?;
+
     for proc_info in processes.iter() {
         let pid_str = &proc_info.pid;
         let container = &proc_info.container;
@@ -478,14 +488,6 @@ async fn update_cpu_memory_metrics(
                     .with_label_values(&[container, pid_str, process])
                     .set(up_time_secs);
 
-                for (_, process) in system.processes() {
-                    println!(
-                        "Process {:?} {:?}",
-                        process.pid(),
-                        process.open_files_limit(),
-                    );
-                }
-
                 let open_file = process_info.open_files().unwrap_or(0) as f64;
                 let open_file_limit = process_info.open_files_limit().unwrap_or(0) as f64;
                 metrics
@@ -499,6 +501,42 @@ async fn update_cpu_memory_metrics(
                     .open_file_limit
                     .with_label_values(&[container, pid_str, process])
                     .set(open_file_limit);
+
+                let mut state_counts: HashMap<String, usize> = HashMap::new();
+
+                let possible_states = vec![
+                    "CLOSED",
+                    "LISTEN",
+                    "SYN_SENT",
+                    "SYN_RCVD",
+                    "ESTABLISHED",
+                    "FIN_WAIT_1",
+                    "FIN_WAIT_2",
+                    "CLOSE_WAIT",
+                    "CLOSING",
+                    "LAST_ACK",
+                    "TIME_WAIT",
+                    "DELETE_TCB",
+                ];
+                for state in possible_states {
+                    state_counts.insert(state.to_string(), 0);
+                }
+                for socket in sockets.iter() {
+                    let associated_pids = &socket.associated_pids;
+                    if let ProtocolSocketInfo::Tcp(tcp_info) = &socket.protocol_socket_info {
+                        // 过滤指定进程的连接
+                        if associated_pids.contains(&pid_str.parse::<u32>().unwrap_or(0)) {
+                            *state_counts.entry(tcp_info.state.to_string()).or_insert(0) += 1;
+                        }
+                    }
+                }
+                for (state, count) in state_counts.iter() {
+                    metrics
+                        .process_metrics
+                        .tcp_connection_states
+                        .with_label_values(&[container, pid_str, process, state])
+                        .set(*count as f64);
+                }
             }
         }
     }
@@ -593,6 +631,42 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
         .open_file_limit
         .with_label_values(&["system"])
         .set(open_file_limit);
+
+    let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+    let proto_flags = ProtocolFlags::TCP;
+
+    let sockets = get_sockets_info(af_flags, proto_flags)?;
+    let mut state_counts: HashMap<String, usize> = HashMap::new();
+    let possible_states = vec![
+        "CLOSED",
+        "LISTEN",
+        "SYN_SENT",
+        "SYN_RCVD",
+        "ESTABLISHED",
+        "FIN_WAIT_1",
+        "FIN_WAIT_2",
+        "CLOSE_WAIT",
+        "CLOSING",
+        "LAST_ACK",
+        "TIME_WAIT",
+        "DELETE_TCB",
+    ];
+    for state in possible_states {
+        state_counts.insert(state.to_string(), 0);
+    }
+    for socket in sockets.iter() {
+        if let ProtocolSocketInfo::Tcp(tcp_info) = &socket.protocol_socket_info {
+            *state_counts.entry(tcp_info.state.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    for (state, count) in state_counts.iter() {
+        metrics
+            .system_metrics
+            .tcp_connection_states
+            .with_label_values(&["system", state])
+            .set(*count as f64);
+    }
 
     Ok(())
 }

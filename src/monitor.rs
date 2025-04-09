@@ -29,7 +29,7 @@ pub(crate) async fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or(&log_level)).init();
 
     let matches = App::new("jvm-exporter")
-        .version("0.3.5")
+        .version("0.3.6")
         .author("tf1997")
         .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
         .arg(

@@ -149,7 +149,7 @@ impl Metrics {
                     "process_tcp_connection_states",
                     "Number of TCP connections in different states for the process",
                 ),
-                &["container", "pid", "process", "state"], // 添加 state 标签
+                &["container", "pid", "process_name", "state"], // 添加 state 标签
             )
             .expect("Failed to create process_tcp_connection_states GaugeVec");
             registry

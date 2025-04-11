@@ -1,4 +1,4 @@
-pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS};
+pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES};
 use log::{error, info, warn};
 use netstat::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
 use prometheus::{Encoder, GaugeVec, Registry};
@@ -180,11 +180,13 @@ async fn update_metrics(
                 .process_metrics
                 .open_file_limit
                 .remove_label_values(&[container, pid, process_name]);
-            
-            let _ = metrics
-                .process_metrics
-                .tcp_connection_states
-                .remove_label_values(&[container, pid, process_name]);
+
+            for state in TCP_STATES {
+                let _ = metrics
+                    .process_metrics
+                    .tcp_connection_states
+                    .remove_label_values(&[container, pid, process_name, state]);
+            }
 
             // Remove jstat metrics
             for &command in JSTAT_COMMANDS.iter() {
@@ -504,21 +506,7 @@ async fn update_cpu_memory_metrics(
 
                 let mut state_counts: HashMap<String, usize> = HashMap::new();
 
-                let possible_states = vec![
-                    "CLOSED",
-                    "LISTEN",
-                    "SYN_SENT",
-                    "SYN_RCVD",
-                    "ESTABLISHED",
-                    "FIN_WAIT_1",
-                    "FIN_WAIT_2",
-                    "CLOSE_WAIT",
-                    "CLOSING",
-                    "LAST_ACK",
-                    "TIME_WAIT",
-                    "DELETE_TCB",
-                ];
-                for state in possible_states {
+                for state in TCP_STATES {
                     state_counts.insert(state.to_string(), 0);
                 }
                 for socket in sockets.iter() {
@@ -637,21 +625,8 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
 
     let sockets = get_sockets_info(af_flags, proto_flags)?;
     let mut state_counts: HashMap<String, usize> = HashMap::new();
-    let possible_states = vec![
-        "CLOSED",
-        "LISTEN",
-        "SYN_SENT",
-        "SYN_RCVD",
-        "ESTABLISHED",
-        "FIN_WAIT_1",
-        "FIN_WAIT_2",
-        "CLOSE_WAIT",
-        "CLOSING",
-        "LAST_ACK",
-        "TIME_WAIT",
-        "DELETE_TCB",
-    ];
-    for state in possible_states {
+    
+    for state in TCP_STATES {
         state_counts.insert(state.to_string(), 0);
     }
     for socket in sockets.iter() {

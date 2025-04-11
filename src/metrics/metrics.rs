@@ -6,6 +6,20 @@ use tokio::sync::Mutex;
 
 pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-class"];
 pub const EXCLUDED_PROCESSES: &[&str] = &["jps"];
+pub const TCP_STATES: &[&str] = &[
+    "CLOSED",
+    "LISTEN",
+    "SYN_SENT",
+    "SYN_RCVD",
+    "ESTABLISHED",
+    "FIN_WAIT_1",
+    "FIN_WAIT_2",
+    "CLOSE_WAIT",
+    "CLOSING",
+    "LAST_ACK",
+    "TIME_WAIT",
+    "DELETE_TCB",
+];
 pub struct Metrics {
     pub(crate) config: Arc<RwLock<Config>>,
     pub(crate) process_metrics: ProcessMetrics,

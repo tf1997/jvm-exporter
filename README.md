@@ -10,9 +10,9 @@ JVM Exporter is specifically designed as an exporter for Prometheus, enabling se
 integration offers a powerful, unified monitoring and alerting solution, making it possible to effectively track and
 analyze JVM performance metrics within the Prometheus ecosystem.
 
-## JVM-Exporter vs. JMX-Exporter
+## ferris-watch vs. JMX-Exporter
 
-| Feature                         | JVM-Exporter                            | JMX-Exporter                                  |
+| Feature                         | ferris-watch                            | JMX-Exporter                                  |
 |---------------------------------|-----------------------------------------|-----------------------------------------------|
 | **Integration**                 | Runs as an independent process          | Requires integration into Java applications   |
 | **Java Process Monitoring**     | Monitors all Java processes on a server | Monitors only the integrated Java application |
@@ -26,11 +26,11 @@ analyze JVM performance metrics within the Prometheus ecosystem.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/tf1997/jvm-exporter.git
+   git clone https://github.com/tf1997/ferris-watch.git
    ```
 2. Build the project (ensure you have Rust installed):
     ```bash
-    cd jvm-exporter
+    cd ferris-watch
     cargo build --release
     ```
 
@@ -42,15 +42,15 @@ For convenience, precompiled binaries for Linux and Windows are provided.
 
 1. Download the binary:
    ```bash
-   wget https://github.com/tf1997/jvm-exporter/releases/download/0.1/jvm-exporter
+   wget https://github.com/tf1997/ferris-watch/releases/download/0.1/ferris-watch
    ```
 2. Make it executable:
    ```bash
-   chmod +x jvm-exporter
+   chmod +x ferris-watch
    ```
 3. Move it to an appropriate location:
    ```bash
-   sudo mv jvm-exporter /usr/local/bin/jvm-exporter
+   sudo mv ferris-watch /usr/local/bin/ferris-watch
    ```
 
 ## Usage
@@ -65,7 +65,7 @@ Start the JVM Exporter with configurable command-line arguments:
 
 ### configurable yaml file
 
-The Configurable yaml file need to be placed in `/usr/local/jvm-exporter/config.yaml`
+The Configurable yaml file need to be placed in `/usr/local/ferris-watch/config.yaml`
 
 ```yaml
 configuration_service_url: http://127.0.0.1:29090/config
@@ -77,14 +77,14 @@ system_processes:
 
 note:
 
-- `configuration_service_url` is come from the master jvm-exporter, non-master all can use its config. And, your local
+- `configuration_service_url` is come from the master ferris-watch, non-master all can use its config. And, your local
   `system_processes` config will not be overwritten
 - `system_processes` is system processes you want to monitoring
 
 ### Start the Service
 
    ```bash
-   ./jvm-exporter
+   ./ferris-watch
    ```
 
 ## View Metrics
@@ -249,7 +249,7 @@ A: Ensure that the `JAVA_HOME` environment variable is correctly set and that jp
 
 **Q: What if the metrics are not updating?**
 
-A: Check that the JVM processes are running and that jvm-exporter has sufficient permissions to access the jstat
+A: Check that the JVM processes are running and that ferris-watch has sufficient permissions to access the jstat
 command.
 
 ## License

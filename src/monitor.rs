@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 #[tokio::main]
 pub(crate) async fn main() {
     let mut config =
-        Config::new("/usr/local/jvm-exporter/config.yaml").unwrap_or_else(|_| Config {
+        Config::new("/usr/local/ferris-watch/config.yaml").unwrap_or_else(|_| Config {
             log_level: None,
             java_home: None,
             configuration_service_url: None,
@@ -35,7 +35,7 @@ pub(crate) async fn main() {
         .unwrap_or_else(|| "info,warp=info".to_string());
     env_logger::Builder::from_env(Env::default().default_filter_or(&log_level)).init();
 
-    let matches = App::new("jvm-exporter")
+    let matches = App::new("ferris-watch")
         .version("0.3.6")
         .author("tf1997")
         .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
@@ -98,9 +98,9 @@ pub(crate) async fn main() {
 }
 
 fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
-    let service_path = "/etc/systemd/system/jvm-exporter.service";
+    let service_path = "/etc/systemd/system/ferris-watch.service";
     let binary_target_dir = "/usr/local/bin";
-    let binary_target_path = format!("{}/jvm-exporter", binary_target_dir);
+    let binary_target_path = format!("{}/ferris-watch", binary_target_dir);
 
     let current_executable_path = std::env::current_exe()?;
     println!(
@@ -169,16 +169,16 @@ WantedBy=multi-user.target",
         .output()?;
 
     std::process::Command::new("systemctl")
-        .args(&["enable", "jvm-exporter.service"])
+        .args(&["enable", "ferris-watch.service"])
         .output()?;
 
     println!("Service configured to auto-start with the system.");
     println!("Use the following commands to manage the service:");
-    println!("  Start service:    systemctl start jvm-exporter.service");
-    println!("  Stop service:     systemctl stop jvm-exporter.service");
-    println!("  Status of service: systemctl status jvm-exporter.service");
-    println!("  Enable service on boot: systemctl enable jvm-exporter.service");
-    println!("  Disable service on boot: systemctl disable jvm-exporter.service");
+    println!("  Start service:    systemctl start ferris-watch.service");
+    println!("  Stop service:     systemctl stop ferris-watch.service");
+    println!("  Status of service: systemctl status ferris-watch.service");
+    println!("  Enable service on boot: systemctl enable ferris-watch.service");
+    println!("  Disable service on boot: systemctl disable ferris-watch.service");
     println!("  Reload daemon after changes: systemctl daemon-reload");
 
     std::process::exit(0);

@@ -18,7 +18,7 @@ use winreg::RegKey;
 #[tokio::main]
 pub(crate) async fn main() {
     let mut config =
-        Config::new("/Users/tengfei.chu/Code/ferris-watch/src/config.yaml").unwrap_or_else(|_| Config {
+        Config::new("/usr/local/ferris-watch/config.yaml").unwrap_or_else(|_| Config {
             log_level: None,
             java_home: None,
             configuration_service_url: None,

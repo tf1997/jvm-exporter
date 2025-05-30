@@ -1,7 +1,10 @@
 use crate::config::{fetch_and_merge_config, Config};
 use crate::routes::setup_routes;
 use clap::{App, Arg};
-use env_logger::Env;
+use log::LevelFilter;
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Config as Log4rsConfig, Root};
+use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -10,7 +13,7 @@ use std::sync::{Arc, RwLock};
 #[tokio::main]
 pub(crate) async fn main() {
     let mut config =
-        Config::new("/usr/local/ferris-watch/config.yaml").unwrap_or_else(|_| Config {
+        Config::new("/Users/tengfei.chu/Code/ferris-watch/src/config.yaml").unwrap_or_else(|_| Config {
             log_level: None,
             java_home: None,
             configuration_service_url: None,
@@ -29,13 +32,63 @@ pub(crate) async fn main() {
         }
     }
 
-    let log_level = config
+    // Configure logging to a file in the user's log directory
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| Path::new(".").to_path_buf())
+        .join("ferris-watch")
+        .join("logs");
+    let log_file_path = log_dir.join("ferris-watch.log");
+
+    // Create log directory if it doesn't exist
+    if let Err(e) = fs::create_dir_all(&log_dir) {
+        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+    }
+eprintln!("Failed to create log directory {:?}", log_dir);
+    let log_level_str = config
         .log_level
         .clone()
-        .unwrap_or_else(|| "info,warp=info".to_string());
-    env_logger::Builder::from_env(Env::default().default_filter_or(&log_level)).init();
+        .unwrap_or_else(|| "info".to_string());
+    let log_level = match log_level_str.to_lowercase().as_str() {
+        "error" => LevelFilter::Error,
+        "warn" => LevelFilter::Warn,
+        "info" => LevelFilter::Info,
+        "debug" => LevelFilter::Debug,
+        "trace" => LevelFilter::Trace,
+        _ => LevelFilter::Info, // Default to Info
+    };
 
-    let matches = App::new("ferris-watch")
+    let file_appender = match FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
+        .build(&log_file_path)
+    {
+        Ok(appender) => appender,
+        Err(e) => {
+            eprintln!("Failed to build file appender for {:?}: {}", log_file_path, e);
+            // Fallback to stderr if file appender fails
+            let stdout_appender = log4rs::append::console::ConsoleAppender::builder()
+                .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
+                .build();
+            let log4rs_config = Log4rsConfig::builder()
+                .appender(Appender::builder().build("stdout", Box::new(stdout_appender)))
+                .build(Root::builder().appender("stdout").build(log_level))
+                .expect("Failed to build fallback log4rs config");
+            log4rs::init_config(log4rs_config).expect("Failed to initialize fallback log4rs");
+            log::error!("Failed to set up file logging. Logging to stderr instead.");
+            return; // Exit main if logging setup fails critically
+        }
+    };
+
+    let log4rs_config = Log4rsConfig::builder() // Fixed typo: log44rs_config -> log4rs_config
+        .appender(Appender::builder().build("file", Box::new(file_appender)))
+        .build(Root::builder().appender("file").build(log_level))
+        .expect("Failed to build log4rs config");
+
+    log4rs::init_config(log4rs_config).expect("Failed to initialize log4rs");
+
+    log::info!("Logs are being written to: {:?}", log_file_path);
+    log::debug!("Log4rs initialized successfully."); // Added for debugging
+
+    let matches = App::new("ferris-watch") // Changed from jvm-exporter
         .version("0.3.6")
         .author("tf1997")
         .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
@@ -98,9 +151,9 @@ pub(crate) async fn main() {
 }
 
 fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
-    let service_path = "/etc/systemd/system/ferris-watch.service";
+    let service_path = "/etc/systemd/system/ferris-watch.service"; // Consistent with new name
     let binary_target_dir = "/usr/local/bin";
-    let binary_target_path = format!("{}/ferris-watch", binary_target_dir);
+    let binary_target_path = format!("{}/ferris-watch", binary_target_dir); // Consistent with new name
 
     let current_executable_path = std::env::current_exe()?;
     println!(
@@ -169,16 +222,16 @@ WantedBy=multi-user.target",
         .output()?;
 
     std::process::Command::new("systemctl")
-        .args(&["enable", "ferris-watch.service"])
+        .args(&["enable", "ferris-watch.service"]) // Consistent with new name
         .output()?;
 
     println!("Service configured to auto-start with the system.");
     println!("Use the following commands to manage the service:");
-    println!("  Start service:    systemctl start ferris-watch.service");
-    println!("  Stop service:     systemctl stop ferris-watch.service");
-    println!("  Status of service: systemctl status ferris-watch.service");
-    println!("  Enable service on boot: systemctl enable ferris-watch.service");
-    println!("  Disable service on boot: systemctl disable ferris-watch.service");
+    println!("  Start service:    systemctl start ferris-watch.service"); // Consistent with new name
+    println!("  Stop service:     systemctl stop ferris-watch.service"); // Consistent with new name
+    println!("  Status of service: systemctl status ferris-watch.service"); // Consistent with new name
+    println!("  Enable service on boot: systemctl enable ferris-watch.service"); // Consistent with new name
+    println!("  Disable service on boot: systemctl disable ferris-watch.service"); // Consistent with new name
     println!("  Reload daemon after changes: systemctl daemon-reload");
 
     std::process::exit(0);

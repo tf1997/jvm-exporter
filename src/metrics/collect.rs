@@ -2,7 +2,7 @@ pub use crate::metrics::metrics::{
     Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES,
 };
 use log::{error, info, warn};
-use netstat::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
+use netstat_esr::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
 use prometheus::{Encoder, GaugeVec, Registry};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};

@@ -16,6 +16,7 @@ pub(crate) async fn main() {
             configuration_service_url: None,
             system_processes: None,
             detect_docker_processes: None,
+            detect_java_processes: Some(true),
         });
 
     let configuration_service_url = config.configuration_service_url.clone();

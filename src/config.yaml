@@ -7,3 +7,4 @@ system_processes:
   - "*clash-verge*"
   - "*idea*"
 detect_docker_processes: false
+detect_java_processes: false

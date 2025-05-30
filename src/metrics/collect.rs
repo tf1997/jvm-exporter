@@ -1,4 +1,6 @@
-pub use crate::metrics::metrics::{Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES};
+pub use crate::metrics::metrics::{
+    Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES,
+};
 use log::{error, info, warn};
 use netstat::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
 use prometheus::{Encoder, GaugeVec, Registry};
@@ -38,12 +40,19 @@ async fn update_metrics(
     let mut all_processes = Vec::new();
     let mut host_process_names: HashSet<String> = HashSet::new();
 
+    let host_processes;
     // 1. Collect Host Processes
-    let host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
-    info!(
-        "Detect and Collect Host Processes: {}",
-        host_processes.len()
-    );
+    if !metrics
+        .config
+        .read()
+        .unwrap()
+        .detect_docker_processes
+        .unwrap_or_default()
+    {
+        host_processes = HashMap::new();
+    } else {
+        host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
+    }
     for (pid, pname) in host_processes {
         all_processes.push(ProcessInfo {
             container: "host".to_string(),
@@ -56,10 +65,6 @@ async fn update_metrics(
     // 2. Detect and Collect Container Processes
     let container_processes =
         get_container_java_processes(metrics.clone(), java_home, full_path).await?;
-    info!(
-        "Detect and Collect Container Processes: {}",
-        container_processes.len()
-    );
     let filtered_container_processes: Vec<ProcessInfo> = container_processes
         .into_iter()
         .filter(|proc_info| {
@@ -219,15 +224,18 @@ async fn update_metrics(
         let mut active_pids = metrics.active_pids.lock().await;
         *active_pids = current_pids.clone();
     }
-
-    // Update CPU and Memory metrics
-    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &all_processes).await {
-        error!("Failed to update CPU and memory metrics: {}", e);
-    }
-
     // Update System metrics
     if let Err(e) = update_system_metrics(Arc::clone(&metrics)).await {
         error!("Failed to update system metrics: {}", e);
+    }
+
+    if all_processes.is_empty() {
+        warn!("No processes found to monitor.");
+        return Ok(());
+    }
+    // Update CPU and Memory metrics
+    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &all_processes).await {
+        error!("Failed to update CPU and memory metrics: {}", e);
     }
 
     // Update jstat metrics
@@ -625,7 +633,7 @@ async fn update_system_metrics(metrics: Arc<Metrics>) -> Result<(), Box<dyn std:
 
     let sockets = get_sockets_info(af_flags, proto_flags)?;
     let mut state_counts: HashMap<String, usize> = HashMap::new();
-    
+
     for state in TCP_STATES {
         state_counts.insert(state.to_string(), 0);
     }

@@ -12,6 +12,7 @@ pub struct Config {
     pub configuration_service_url: Option<String>,
     pub system_processes: Option<Vec<String>>,
     pub detect_docker_processes: Option<bool>,
+    pub detect_java_processes: Option<bool>,
 }
 
 impl Config {
@@ -20,6 +21,9 @@ impl Config {
         let mut config: Config = serde_yaml::from_str(&config_content)?;
         if config.detect_docker_processes.is_none() {
             config.detect_docker_processes = Some(false);
+        }
+        if config.detect_java_processes.is_none() {
+            config.detect_java_processes = Some(true);
         }
         Ok(config)
     }
@@ -39,6 +43,12 @@ pub async fn fetch_and_merge_config(url: &str, config: &mut Config) -> Result<()
     }
     if remote_config.java_home.is_some() {
         config.java_home = remote_config.java_home;
+    }
+    if remote_config.detect_docker_processes.is_some() {
+        config.detect_docker_processes = remote_config.detect_docker_processes;
+    }
+    if remote_config.detect_java_processes.is_some() {
+        config.detect_java_processes = remote_config.detect_java_processes;
     }
     if let Some(remote_processes) = remote_config.system_processes {
         let mut local_processes: HashSet<String> = config.system_processes.clone().unwrap_or_default().into_iter().collect();

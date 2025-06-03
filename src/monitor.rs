@@ -48,7 +48,7 @@ pub(crate) async fn main() {
     if let Err(e) = fs::create_dir_all(&log_dir) {
         eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
     }
-eprintln!("Failed to create log directory {:?}", log_dir);
+    eprintln!("Failed to create log directory {:?}", log_dir);
     let log_level_str = config
         .log_level
         .clone()
@@ -169,7 +169,7 @@ eprintln!("Failed to create log directory {:?}", log_dir);
 }
 
 #[cfg(target_os = "windows")]
-fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
+pub fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let current_exe_path = std::env::current_exe()?;
     let app_name = "ferris-watch";
 
@@ -201,7 +201,7 @@ fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     let (key, _disp) = hklm.create_subkey(&path)?;
 
-    key.set_value(app_name, &format!("\"{}\" --run-headless", target_exe_str))?; // Add --run-headless argument
+    key.set_value(app_name, &format!("\"{}\" --no-ui", target_exe_str))?; // Add --no-ui argument
     println!("Auto-start configured for Windows (all users) with entry: {} = {}", app_name, target_exe_str);
     println!("NOTE: This operation requires administrative privileges to set auto-start for all users.");
     println!("Application will start automatically with Windows.");
@@ -213,14 +213,14 @@ fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
         .arg("start")
         .arg("") // Title argument, can be empty
         .arg(&target_exe_str)
-        .arg("--run-headless") // Pass --run-headless to the launched instance
+        .arg("--no-ui") // Pass --no-ui to the launched instance
         .spawn()?;
     println!("Application started.");
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
+pub fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/ferris-watch.service"; // Consistent with new name
     let binary_target_dir = "/usr/local/bin";
     let binary_target_path = format!("{}/ferris-watch", binary_target_dir); // Consistent with new name
@@ -309,7 +309,7 @@ WantedBy=multi-user.target",
 }
 
 #[cfg(target_os = "windows")]
-fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
+pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let app_name = "ferris-watch";
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -341,7 +341,7 @@ fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
+pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let service_path = "/etc/systemd/system/ferris-watch.service";
     let binary_target_path = "/usr/local/bin/ferris-watch";
 

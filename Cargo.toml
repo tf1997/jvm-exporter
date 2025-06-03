@@ -22,11 +22,11 @@ regex = "1.5"
 netstat-esr = "0.8.1"
 dirs = "5.0.1"
 log4rs = "1.2.0"
-
+ribir = { version = "0.3.0"} # Default feature for Ribir
+winit = "0.29" # Add winit as a direct dependency
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"
-windows = { version = "0.61.1", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
 
 [profile.release]

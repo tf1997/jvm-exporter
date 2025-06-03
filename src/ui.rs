@@ -12,13 +12,18 @@ fn app_buttons() -> impl WidgetBuilder {
             @FilledButton {
                 on_tap: move |e| {
                     // 启动独立进程
-                    std::thread::spawn(move || {
-                                    println!("Background thread for monitor::main() started.");
-                                    monitor::main();
-                    });
-                
-                    show_info_dialog("Background started successfully!", e.window());
-                    // handle.detach();
+                    let current_exe = std::env::current_exe();
+                    match current_exe {
+                        Ok(exe_path) => {
+                            let mut command = std::process::Command::new(exe_path);
+                            command.arg("--no-ui");
+                            match command.spawn() {
+                                Ok(_) => show_info_dialog("Background monitor started successfully!", e.window()),
+                                Err(e1) => show_info_dialog(format!("Failed to start background monitor: {}", e1), e.window()),
+                            }
+                        },
+                        Err(e1) => show_info_dialog(format!("Failed to get executable path: {}", e1), e.window()),
+                    }
                 },
                 @{ Label::new("Start") }
             }

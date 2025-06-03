@@ -15,8 +15,13 @@ use winreg::enums::*;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
-#[tokio::main]
-pub(crate) async fn main() {
+pub(crate) async fn init_and_run(
+    auto_start: bool,
+    should_disable_auto_start: bool,
+    no_ui: bool,
+    java_home_arg: Option<String>,
+    full_path_arg: bool,
+) {
     let mut config =
         Config::new("/usr/local/ferris-watch/config.yaml").unwrap_or_else(|_| Config {
             log_level: None,
@@ -48,7 +53,7 @@ pub(crate) async fn main() {
     if let Err(e) = fs::create_dir_all(&log_dir) {
         eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
     }
-    eprintln!("Failed to create log directory {:?}", log_dir);
+    eprintln!("Create log directory successfully {:?}", log_dir);
     let log_level_str = config
         .log_level
         .clone()
@@ -93,40 +98,6 @@ pub(crate) async fn main() {
     log::info!("Logs are being written to: {:?}", log_file_path);
     log::debug!("Log4rs initialized successfully.");
 
-    let matches = App::new("ferris-watch")
-        .version("0.3.6")
-        .author("tf1997")
-        .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
-        .arg(
-            Arg::new("java_home")
-                .long("java-home")
-                .value_name("JAVA_HOME")
-                .help("Sets a custom JAVA_HOME")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("full_path")
-                .long("full-path")
-                .help("Only use class name instead of full package path in the process name")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::new("auto_start")
-                .long("auto-start")
-                .help("Configure the program to auto-start with the system"),
-        )
-        .arg(
-            Arg::new("disable_auto_start")
-                .long("disable-auto-start")
-                .help("Disable the program from auto-starting with the system"),
-        )
-        .get_matches();
-
-    let java_home = matches.value_of("java_home").map(|s| s.to_string());
-    let full_path = matches.is_present("full_path");
-    let auto_start = matches.is_present("auto_start");
-    let should_disable_auto_start = matches.is_present("disable_auto_start");
-
     if auto_start {
         match configure_auto_start() {
             Ok(_) => println!("Auto-start configuration successful."),
@@ -137,34 +108,44 @@ pub(crate) async fn main() {
             Ok(_) => println!("Auto-start disabled successfully."),
             Err(e) => eprintln!("Failed to disable auto-start: {}", e),
         }
+    } else if no_ui {
+        run_server(config, java_home_arg, full_path_arg).await;
     } else {
-        // Original application logic (run the server)
-        let config = Arc::new(RwLock::new(config));
+        // Run the server
+        run_server(config, java_home_arg, full_path_arg).await;
+        // Launch the UI
+        crate::ui::app();
+    }
+}
 
-        // Encapsulate shared data into Arc
-        let java_home = Arc::new(java_home);
+pub async fn run_server(
+    config: Config,
+    java_home: Option<String>,
+    full_path: bool,
+) {
+    let config = Arc::new(RwLock::new(config));
+    let java_home = Arc::new(java_home);
 
-        let addr = ([0, 0, 0, 0], 29090);
-        let ip_addr = std::net::Ipv4Addr::from(addr.0);
-        let routes = setup_routes(java_home, full_path, config.clone());
-        let server = warp::serve(routes).bind((ip_addr, addr.1));
-        let server_handle = tokio::spawn(server);
+    let addr = ([0, 0, 0, 0], 29090);
+    let ip_addr = std::net::Ipv4Addr::from(addr.0);
+    let routes = setup_routes(java_home, full_path, config.clone());
+    let server = warp::serve(routes).bind((ip_addr, addr.1));
+    let server_handle = tokio::spawn(server);
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        println!("Server started successfully");
-        println!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
+    println!("Server started successfully");
+    println!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
 
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                println!("Received Ctrl+C, shutting down.");
-            },
-            res = server_handle => {
-                if let Err(e) = res {
-                    eprintln!("Server error: {}", e);
-                }
-            },
-        }
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("Received Ctrl+C, shutting down.");
+        },
+        res = server_handle => {
+            if let Err(e) = res {
+                eprintln!("Server error: {}", e);
+            }
+        },
     }
 }
 
@@ -244,7 +225,7 @@ pub fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let service_content = if let Some(jh) = java_home {
         format!(
             "[Unit]
-Description=JVM Exporter Service
+Description=ferris-watch Service
 After=network.target
 
 [Service]
@@ -262,7 +243,7 @@ WantedBy=multi-user.target",
     } else {
         format!(
             "[Unit]
-Description=JVM Exporter Service
+Description=ferris-watch Service
 After=network.target
 
 [Service]

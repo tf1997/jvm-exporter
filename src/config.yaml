@@ -1,5 +1,6 @@
+update_service_url:
 configuration_service_url:
-log_level: ERROR
+log_level: info
 system_processes:
   - "*WindowServer*"
   - "LM Studio"

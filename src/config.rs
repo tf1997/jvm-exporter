@@ -13,6 +13,7 @@ pub struct Config {
     pub system_processes: Option<Vec<String>>,
     pub detect_docker_processes: Option<bool>,
     pub detect_java_processes: Option<bool>,
+    pub update_service_url: Option<String>,
 }
 
 impl Config {
@@ -49,6 +50,9 @@ pub async fn fetch_and_merge_config(url: &str, config: &mut Config) -> Result<()
     }
     if remote_config.detect_java_processes.is_some() {
         config.detect_java_processes = remote_config.detect_java_processes;
+    }
+    if remote_config.update_service_url.is_some() {
+        config.update_service_url = remote_config.update_service_url;
     }
     if let Some(remote_processes) = remote_config.system_processes {
         let mut local_processes: HashSet<String> = config.system_processes.clone().unwrap_or_default().into_iter().collect();

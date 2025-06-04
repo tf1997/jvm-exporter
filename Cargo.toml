@@ -24,6 +24,8 @@ dirs = "5.0.1"
 log4rs = "1.2.0"
 ribir = { version = "0.3.0"} # Default feature for Ribir
 winit = "0.29" # Add winit as a direct dependency
+chrono = "0.4"
+semver = "1.0" # Add semver crate
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"

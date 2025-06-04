@@ -1,9 +1,14 @@
 use ribir::{prelude::*};
-use std::rc::Rc;
+use std::rc::Rc; // Keep Rc for other dialogs if needed, or remove if not
 use crate::monitor;
+use crate::updater; // Add updater module
+use tokio; // Import tokio for spawning async tasks
+use log::{info, error}; // Import info and error for logging
+use crate::config::Config; // Import Config
 
-fn app_buttons() -> impl WidgetBuilder {
+fn app_buttons(config: Config) -> impl WidgetBuilder {
     fn_widget! {
+        let config_for_check_update = config.clone();
 
         @Column {
             align_items: Align::Center,
@@ -47,8 +52,18 @@ fn app_buttons() -> impl WidgetBuilder {
                 @{ Label::new("Uninstall Autostart") }
             }
             @FilledButton {
-                on_tap: move |e| {
-                    show_info_dialog("Nothing to update!", e.window());
+                on_tap: move |_| { // Changed to |_| as e.window() is not used directly here
+                    let value = config_for_check_update.clone();
+                    tokio::spawn(async move {
+                        match updater::check_and_update(value.clone()).await {
+                            Ok(_) => {
+                                info!("Update check completed. Check logs for details.");
+                            },
+                            Err(e) => {
+                                error!("Update check failed: {}", e);
+                            }
+                        }
+                    });
                 },
                 @{ Label::new("Check Update") }
             }
@@ -56,6 +71,8 @@ fn app_buttons() -> impl WidgetBuilder {
     }
 }
 
+// Keep show_info_dialog for other buttons if they still use it.
+// If not, this function and its related imports (Rc, CowArc, Overlay, Text) can be removed.
 fn show_info_dialog(message: impl Into<CowArc<str>>, window: Rc<ribir::prelude::Window>) {
     let message = message.into();
     let overlay = Overlay::new(fn_widget! {
@@ -68,6 +85,6 @@ fn show_info_dialog(message: impl Into<CowArc<str>>, window: Rc<ribir::prelude::
     overlay.show(window);   
 }
 
-pub fn app()  {
-    App::run(app_buttons()).with_title("Ferris Watch");
+pub fn app(config: Config)  {
+    App::run(app_buttons(config)).with_title("Ferris Watch");
 }

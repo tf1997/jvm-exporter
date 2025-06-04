@@ -1,10 +1,5 @@
 use crate::config::{fetch_and_merge_config, Config};
 use crate::routes::setup_routes;
-use clap::{App, Arg};
-use log::LevelFilter;
-use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config as Log4rsConfig, Root};
-use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -21,17 +16,8 @@ pub(crate) async fn init_and_run(
     no_ui: bool,
     java_home_arg: Option<String>,
     full_path_arg: bool,
+    mut config: Config, // Add config as a parameter
 ) {
-    let mut config =
-        Config::new("/usr/local/ferris-watch/config.yaml").unwrap_or_else(|_| Config {
-            log_level: None,
-            java_home: None,
-            configuration_service_url: None,
-            system_processes: None,
-            detect_docker_processes: None,
-            detect_java_processes: Some(true),
-        });
-
     let configuration_service_url = config.configuration_service_url.clone();
     if let Some(configuration_service_url) = configuration_service_url {
         if let Err(e) = fetch_and_merge_config(&configuration_service_url, &mut config).await {
@@ -41,62 +27,6 @@ pub(crate) async fn init_and_run(
             );
         }
     }
-
-    // Configure logging to a file in the user's log directory
-    let log_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| Path::new(".").to_path_buf())
-        .join("ferris-watch")
-        .join("logs");
-    let log_file_path = log_dir.join("ferris-watch.log");
-
-    // Create log directory if it doesn't exist
-    if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
-    }
-    eprintln!("Create log directory successfully {:?}", log_dir);
-    let log_level_str = config
-        .log_level
-        .clone()
-        .unwrap_or_else(|| "info".to_string());
-    let log_level = match log_level_str.to_lowercase().as_str() {
-        "error" => LevelFilter::Error,
-        "warn" => LevelFilter::Warn,
-        "info" => LevelFilter::Info,
-        "debug" => LevelFilter::Debug,
-        "trace" => LevelFilter::Trace,
-        _ => LevelFilter::Info, // Default to Info
-    };
-
-    let file_appender = match FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
-        .build(&log_file_path)
-    {
-        Ok(appender) => appender,
-        Err(e) => {
-            eprintln!("Failed to build file appender for {:?}: {}", log_file_path, e);
-            // Fallback to stderr if file appender fails
-            let stdout_appender = log4rs::append::console::ConsoleAppender::builder()
-                .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
-                .build();
-            let log4rs_config = Log4rsConfig::builder()
-                .appender(Appender::builder().build("stdout", Box::new(stdout_appender)))
-                .build(Root::builder().appender("stdout").build(log_level))
-                .expect("Failed to build fallback log4rs config");
-            log4rs::init_config(log4rs_config).expect("Failed to initialize fallback log4rs");
-            log::error!("Failed to set up file logging. Logging to stderr instead.");
-            return; // Exit main if logging setup fails critically
-        }
-    };
-
-    let log4rs_config = Log4rsConfig::builder()
-        .appender(Appender::builder().build("file", Box::new(file_appender)))
-        .build(Root::builder().appender("file").build(log_level))
-        .expect("Failed to build log4rs config");
-
-    log4rs::init_config(log4rs_config).expect("Failed to initialize log4rs");
-
-    log::info!("Logs are being written to: {:?}", log_file_path);
-    log::debug!("Log4rs initialized successfully.");
 
     if auto_start {
         match configure_auto_start() {
@@ -109,12 +39,20 @@ pub(crate) async fn init_and_run(
             Err(e) => eprintln!("Failed to disable auto-start: {}", e),
         }
     } else if no_ui {
-        run_server(config, java_home_arg, full_path_arg).await;
+        run_server(config.clone(), java_home_arg, full_path_arg).await;
+        // Also call check_and_update here if no_ui is true
+        if let Err(e) = crate::updater::check_and_update(config).await {
+            eprintln!("Update check failed: {}", e);
+        }
     } else {
         // Run the server
-        run_server(config, java_home_arg, full_path_arg).await;
+        run_server(config.clone(), java_home_arg, full_path_arg).await;
         // Launch the UI
-        crate::ui::app();
+        crate::ui::app(config.clone()); // Pass config to ui::app
+        // Call check_and_update after UI launch
+        if let Err(e) = crate::updater::check_and_update(config).await {
+            eprintln!("Update check failed: {}", e);
+        }
     }
 }
 

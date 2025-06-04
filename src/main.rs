@@ -1,10 +1,13 @@
+#![windows_subsystem = "windows"]
 mod monitor;
 mod routes;
 mod config;
 mod updater;
+mod installer;
 mod ui{
     pub mod home;
     pub mod update;
+    pub mod install;
 }
 mod metrics {
     pub mod collect;
@@ -14,8 +17,6 @@ mod metrics {
 
 use clap;
 use log::{info, error, LevelFilter};
-use tokio::time::{sleep, Duration};
-use chrono::{Local, Timelike};
 use crate::config::{fetch_and_merge_config, Config};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
@@ -141,6 +142,11 @@ async fn main() {
                 .long("no-ui")
                 .help("Run the program without a UI (for Windows and macOS)"),
         )
+        .arg(
+            clap::Arg::new("install_ui")
+                .long("install-ui")
+                .help("Run the program with a install UI (for Windows and macOS)"),
+        )
         .get_matches();
 
     let java_home = matches.value_of("java_home").map(|s| s.to_string());
@@ -148,40 +154,33 @@ async fn main() {
     let auto_start = matches.is_present("auto_start");
     let should_disable_auto_start = matches.is_present("disable_auto_start");
     let no_ui = matches.is_present("no_ui");
-
-    // Spawn a task for daily update checks
-    let config_for_update = Arc::clone(&config);
-    tokio::spawn(async move {
-        loop {
-            let config = Arc::clone(&config_for_update);
-            // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
-            let now = Local::now();
-            let next_check = (now + Duration::from_secs(24 * 3600)) // Add 24 hours
-                .with_hour(3).unwrap() // Set to 3 AM
-                .with_minute(0).unwrap()
-                .with_second(0).unwrap()
-                .with_nanosecond(0).unwrap();
-
-            let sleep_duration = if next_check > now {
-                next_check.signed_duration_since(now).to_std().unwrap_or_default()
-            } else {
-                // If next_check is in the past (e.g., if current time is after 3 AM),
-                // schedule for 3 AM tomorrow.
-                (next_check + Duration::from_secs(24 * 3600)).signed_duration_since(now).to_std().unwrap_or_default()
-            };
-
-            info!("Next update check scheduled in: {:?}", sleep_duration);
-            sleep(sleep_duration).await;
-
-            info!("Performing scheduled update check...");
-            if let Err(e) = updater::check_and_update(config).await {
-                error!("Scheduled update check failed: {}", e);
-            }
-        }
-    });
+    let install_ui = matches.is_present("install_ui");
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
+        if install_ui {
+            info!("Running in install UI mode.");
+            crate::ui::install::app(Arc::clone(&config));
+            return; // Exit main after showing install UI
+        }
+        if !no_ui {
+            info!("Checking for updates on startup...");
+            let config_for_update_check = Arc::clone(&config);
+            match updater::check_for_update(config_for_update_check).await {
+                Ok(Some(download_url)) => {
+                    info!("Update available. Navigating to update page.");
+                    crate::ui::update::app(config, download_url);
+                    return; // Exit main after showing update UI
+                },
+                Ok(None) => {
+                    info!("No update available on startup.");
+                },
+                Err(e) => {
+                    error!("Failed to check for updates on startup: {}", e);
+                }
+            }
+        }
+
         if auto_start || should_disable_auto_start || no_ui {
             monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, config).await;
         } else {
@@ -189,6 +188,40 @@ async fn main() {
             crate::ui::home::app(config);
         }
     }
+
+    // Spawn a task for daily update checks
+    // let config_for_daily_update = Arc::clone(&config);
+    // tokio::spawn(async move {
+    //     loop {
+    //         let config = Arc::clone(&config_for_daily_update);
+    //         // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
+    //         let now = Local::now();
+    //         let next_check = (now + Duration::from_secs(24 * 3600)) // Add 24 hours
+    //             .with_hour(3).unwrap() // Set to 3 AM
+    //             .with_minute(0).unwrap()
+    //             .with_second(0).unwrap()
+    //             .with_nanosecond(0).unwrap();
+
+    //         let sleep_duration = if next_check > now {
+    //             next_check.signed_duration_since(now).to_std().unwrap_or_default()
+    //         } else {
+    //             // If next_check is in the past (e.g., if current time is after 3 AM),
+    //             // schedule for 3 AM tomorrow.
+    //             (next_check + Duration::from_secs(24 * 3600)).signed_duration_since(now).to_std().unwrap_or_default()
+    //         };
+
+    //         info!("Next update check scheduled in: {:?}", sleep_duration);
+    //         sleep(sleep_duration).await;
+
+    //         info!("Performing scheduled update check...");
+    //         if let Some(download_url) = updater::check_for_update(config).await.unwrap_or(None) {
+    //             info!("New version available! Downloading update...");
+    //             if let Err(e) = updater::download_update(&download_url).await {
+    //                 error!("Scheduled update download failed: {}", e);
+    //             }
+    //         }
+    //     }
+    // });
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

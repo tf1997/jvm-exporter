@@ -7,7 +7,20 @@ use tokio::fs;
 use std::io::Read;
 use crate::config::Config;
 
-pub async fn check_and_update(config: Arc<RwLock<Config>>) -> Result<(), Box<dyn Error>> {
+pub async fn check_and_update(config: Arc<RwLock<Config>>) -> Result<Option<String>, Box<dyn Error>> {
+    let update_url_option = check_for_update(config.clone()).await?;
+
+    if let Some(update_url) = update_url_option {
+        info!("New version available at: {}", update_url);
+        download_update(&update_url).await?;
+        info!("Update downloaded successfully.");
+        Ok(Some(update_url))
+    } else {
+        info!("No update available.");
+        Ok(None)
+    }
+}
+pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<String>, Box<dyn Error>> {
     info!("Checking for updates...");
 
     let update_service_url = config
@@ -31,30 +44,34 @@ pub async fn check_and_update(config: Arc<RwLock<Config>>) -> Result<(), Box<dyn
     let current_version_parsed = semver::Version::parse(current_version)?;
 
     if latest_version > current_version_parsed {
-        info!("New version available! Downloading update...");
-        // Manually download the file
-        let response = ureq::get(&download_file_url).call()?;
-        if response.status() != 200 {
-            return Err(format!("Failed to download update: HTTP {}", response.status()).into());
-        }
-        let mut bytes = Vec::new();
-        response.into_reader().read_to_end(&mut bytes)?;
-
-        let app_data_dir = get_app_data_dir()?;
-        let current_exe = std::env::current_exe()?;
-        let app_name = current_exe.file_name().unwrap().to_str().unwrap();
-        let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}_new", app_name)); // Save with a temporary name
-
-        info!("Saving new executable to: {:?}", downloaded_file_path);
-        fs::write(&downloaded_file_path, bytes).await?;
-        info!("New executable downloaded successfully.");
-
-        info!("Please manually replace your current executable at {:?} with the new one at {:?} and restart the application.",
-            current_exe, downloaded_file_path);
+        info!("New version available!");
+        Ok(Some(download_file_url))
     } else {
         info!("No update available. You are running the latest version.");
+        Ok(None)
     }
+}
 
+pub async fn download_update(download_url: &str) -> Result<(), Box<dyn Error>> {
+    info!("Downloading update from: {}", download_url);
+    let response = ureq::get(download_url).call()?;
+    if response.status() != 200 {
+        return Err(format!("Failed to download update: HTTP {}", response.status()).into());
+    }
+    let mut bytes = Vec::new();
+    response.into_reader().read_to_end(&mut bytes)?;
+
+    let app_data_dir = get_app_data_dir()?;
+    let current_exe = std::env::current_exe()?;
+    let app_name = current_exe.file_name().unwrap().to_str().unwrap();
+    let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}_new", app_name)); // Save with a temporary name
+
+    info!("Saving new executable to: {:?}", downloaded_file_path);
+    fs::write(&downloaded_file_path, bytes).await?;
+    info!("New executable downloaded successfully.");
+
+    info!("Please manually replace your current executable at {:?} with the new one at {:?} and restart the application.",
+        current_exe, downloaded_file_path);
     Ok(())
 }
 

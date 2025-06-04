@@ -1,11 +1,14 @@
-use ribir::{prelude::*};
-use std::rc::Rc;
 use crate::config::Config;
+use crate::installer;
+use crate::updater;
+use ribir::prelude::*;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
-
-fn app_buttons(config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
+use tokio::runtime::Runtime;
+use log::{info, error};
+fn app_buttons( config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
     fn_widget! {
-        let config_for_check_update = config.clone();
 
         @Column {
             margin: EdgeInsets::all(20.),
@@ -21,36 +24,57 @@ fn app_buttons(config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
             item_gap: 20.,
             @FilledButton {
                 on_tap: move |e| {
-                    // 启动独立进程
-                    // let current_exe = std::env::current_exe();
-                    // match current_exe {
-                    //     Ok(exe_path) => {
-                    //         let mut command = std::process::Command::new(exe_path);
-                    //         command.arg("--no-ui");
-                    //         match command.spawn() {
-                    //             Ok(_) => show_info_dialog("Background monitor started successfully!", e.window()),
-                    //             Err(e1) => show_info_dialog(format!("Failed to start background monitor: {}", e1), e.window()),
-                    //         }
-                    //     },
-                    //     Err(e1) => show_info_dialog(format!("Failed to get executable path: {}", e1), e.window()),
-                    // }
-                    show_info_dialog("Install successfully!", e.window())
+                    let window = e.window();
+                    std::thread::spawn(move || {
+                        let rt = Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let app_data_dir = match updater::get_app_data_dir() {
+                                Ok(dir) => dir,
+                                Err(e) => {
+                                    // show_info_dialog(format!("Error getting app data directory: {}", e), window.clone());
+                                    error!("Error getting app data directory: {}", e);
+                                    return;
+                                }
+                            };
+                            let current_exe = std::env::current_exe().unwrap();
+                            let app_name = current_exe.file_name().unwrap().to_str().unwrap();
+                            let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}", app_name));
+
+                            if !downloaded_file_path.exists() {
+                                // show_info_dialog("No new installer found in download directory. Please update first.", window.clone());
+                                error!("No new installer found ({})in download directory. Please update first.", downloaded_file_path.display());
+                                return;
+                            }
+
+                            match installer::install_application(&downloaded_file_path).await {
+                                Ok(_) => {
+                                    // show_info_dialog("Installation successful! Please restart the application.", window.clone());
+                                    info!("nstallation successful! Please restart the application.");
+                                    std::process::exit(0);
+                                },
+                                Err(e) => {
+                                    error!("Installation failed: {}. Please run as administrator.", e);
+                                    // show_info_dialog(format!("Installation failed: {}. Please run as administrator.", e), window.clone());
+                                }
+                            }
+                        });
+                    });
+
                 },
                 @{ Label::new("Install") }
             }
             @OutlinedButton {
                 on_tap: move |e| {
-                    
-                        show_info_dialog("Cancel successfully, the window will be closed in 3 seconds!", e.window())
-                        sleep(std::time::Duration::from_secs(3)).await;
+
+                        show_info_dialog("Cancel successfully, the window will be closed in 3 seconds!", e.window());
                         std::process::exit(0);
-                        
+
                 },
                 @{ Label::new("Cancel") }
             }
         }
         }
-        
+
     }
 }
 
@@ -63,12 +87,12 @@ fn show_info_dialog(message: impl Into<CowArc<str>>, window: Rc<ribir::prelude::
             text: message
         }
     });
-    overlay.show(window);   
+    overlay.show(window);
 }
 
-pub fn app(config: Arc<RwLock<Config>>)  {
+pub fn app(config: Arc<RwLock<Config>>) {
     App::run(app_buttons(config))
-    .with_title("Ferris Watch")
-    .with_size(Size::new(400., 150.))
-    .with_resizable(false);
+        .with_title("Ferris Watch")
+        .with_size(Size::new(400., 150.))
+        .with_resizable(false);
 }

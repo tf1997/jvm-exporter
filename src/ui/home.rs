@@ -5,13 +5,15 @@ use crate::updater; // Add updater module
 use tokio; // Import tokio for spawning async tasks
 use log::{info, error}; // Import info and error for logging
 use crate::config::Config; // Import Config
+use std::sync::{Arc, RwLock}; // Import Arc and RwLock for shared state
 
-fn app_buttons(config: Config) -> impl WidgetBuilder {
+fn app_buttons(config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
     fn_widget! {
         let config_for_check_update = config.clone();
 
         @Column {
             align_items: Align::Center,
+            h_align: HAlign::Center,
             margin: EdgeInsets::all(20.),
             item_gap: 20.,
             @FilledButton {
@@ -55,7 +57,7 @@ fn app_buttons(config: Config) -> impl WidgetBuilder {
                 on_tap: move |_| { // Changed to |_| as e.window() is not used directly here
                     let value = config_for_check_update.clone();
                     tokio::spawn(async move {
-                        match updater::check_and_update(value.clone()).await {
+                        match updater::check_and_update(value).await {
                             Ok(_) => {
                                 info!("Update check completed. Check logs for details.");
                             },
@@ -85,6 +87,9 @@ fn show_info_dialog(message: impl Into<CowArc<str>>, window: Rc<ribir::prelude::
     overlay.show(window);   
 }
 
-pub fn app(config: Config)  {
-    App::run(app_buttons(config)).with_title("Ferris Watch");
+pub fn app(config: Arc<RwLock<Config>>)  {
+    App::run(app_buttons(config))
+        .with_title("Ferris Watch")
+        .with_size(Size::new(400., 300.))
+        .with_resizable(false);
 }

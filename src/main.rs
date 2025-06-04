@@ -1,9 +1,11 @@
 mod monitor;
 mod routes;
 mod config;
-mod ui;
 mod updater;
-
+mod ui{
+    pub mod home;
+    pub mod update;
+}
 mod metrics {
     pub mod collect;
     pub mod metrics;
@@ -14,17 +16,18 @@ use clap;
 use log::{info, error, LevelFilter};
 use tokio::time::{sleep, Duration};
 use chrono::{Local, Timelike};
-use crate::config::Config;
+use crate::config::{fetch_and_merge_config, Config};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
 use std::path::Path;
 use dirs;
+use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 async fn main() {
-    let config = Config::new("/Users/tengfei.chu/Code/jvm-exporter/src/config.yaml").unwrap_or_else(|e| {
+    let mut config = Config::new("/Users/tengfei.chu/Code/jvm-exporter/src/config.yaml").unwrap_or_else(|e| {
         error!("Failed to load config.yaml: {}", e);
         // Provide a default config if loading fails
         Config {
@@ -37,6 +40,18 @@ async fn main() {
             update_service_url: None
         }
     });
+
+    let configuration_service_url = config.configuration_service_url.clone();
+    if let Some(configuration_service_url) = configuration_service_url {
+        if let Err(e) = fetch_and_merge_config(&configuration_service_url, &mut config).await {
+            eprintln!(
+                "Failed to fetch configuration from configuration service: {}",
+                e
+            );
+        }
+    }
+
+    let config = Arc::new(RwLock::new(config));
 
     // Configure logging to a file in the user's log directory
     let log_dir = dirs::data_local_dir()
@@ -51,6 +66,8 @@ async fn main() {
     }
     eprintln!("Create log directory successfully {:?}", log_dir);
     let log_level_str = config
+        .read()
+        .unwrap()
         .log_level
         .clone()
         .unwrap_or_else(|| "info".to_string());
@@ -132,22 +149,11 @@ async fn main() {
     let should_disable_auto_start = matches.is_present("disable_auto_start");
     let no_ui = matches.is_present("no_ui");
 
-    // Handle auto-start configuration
-    if auto_start {
-        info!("Attempting to set up auto-start...");
-        if let Err(e) = updater::setup_autostart().await {
-            error!("Failed to set up auto-start: {}", e);
-        } else {
-            info!("Auto-start setup successfully.");
-        }
-    } else if should_disable_auto_start {
-        info!("Auto-start disable not implemented yet."); // TODO: Implement disable auto-start
-    }
-
     // Spawn a task for daily update checks
-    let config_clone_for_updater = config.clone();
+    let config_for_update = Arc::clone(&config);
     tokio::spawn(async move {
         loop {
+            let config = Arc::clone(&config_for_update);
             // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
             let now = Local::now();
             let next_check = (now + Duration::from_secs(24 * 3600)) // Add 24 hours
@@ -168,7 +174,7 @@ async fn main() {
             sleep(sleep_duration).await;
 
             info!("Performing scheduled update check...");
-            if let Err(e) = updater::check_and_update(config_clone_for_updater.clone()).await {
+            if let Err(e) = updater::check_and_update(config).await {
                 error!("Scheduled update check failed: {}", e);
             }
         }
@@ -177,16 +183,16 @@ async fn main() {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         if auto_start || should_disable_auto_start || no_ui {
-            monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, config.clone()).await;
+            monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, config).await;
         } else {
             // If no specific flags, launch UI which will then handle starting the monitor
-            crate::ui::app(config.clone());
+            crate::ui::home::app(config);
         }
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         println!("Starting ferris-watch directly (non-Windows/macOS).");
-        monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, config.clone()).await;
+        monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, config).await;
     }
 }

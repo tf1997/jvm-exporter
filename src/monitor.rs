@@ -1,4 +1,4 @@
-use crate::config::{fetch_and_merge_config, Config};
+use crate::config::Config;
 use crate::routes::setup_routes;
 use std::fs;
 use std::io::Write;
@@ -13,20 +13,12 @@ use winreg::RegKey;
 pub(crate) async fn init_and_run(
     auto_start: bool,
     should_disable_auto_start: bool,
-    no_ui: bool,
     java_home_arg: Option<String>,
     full_path_arg: bool,
-    mut config: Config, // Add config as a parameter
+    config: Arc<RwLock<Config>>, // Add config as a parameter
 ) {
-    let configuration_service_url = config.configuration_service_url.clone();
-    if let Some(configuration_service_url) = configuration_service_url {
-        if let Err(e) = fetch_and_merge_config(&configuration_service_url, &mut config).await {
-            eprintln!(
-                "Failed to fetch configuration from configuration service: {}",
-                e
-            );
-        }
-    }
+
+    let config = Arc::clone(&config);
 
     if auto_start {
         match configure_auto_start() {
@@ -38,18 +30,9 @@ pub(crate) async fn init_and_run(
             Ok(_) => println!("Auto-start disabled successfully."),
             Err(e) => eprintln!("Failed to disable auto-start: {}", e),
         }
-    } else if no_ui {
+    } else {
         run_server(config.clone(), java_home_arg, full_path_arg).await;
         // Also call check_and_update here if no_ui is true
-        if let Err(e) = crate::updater::check_and_update(config).await {
-            eprintln!("Update check failed: {}", e);
-        }
-    } else {
-        // Run the server
-        run_server(config.clone(), java_home_arg, full_path_arg).await;
-        // Launch the UI
-        crate::ui::app(config.clone()); // Pass config to ui::app
-        // Call check_and_update after UI launch
         if let Err(e) = crate::updater::check_and_update(config).await {
             eprintln!("Update check failed: {}", e);
         }
@@ -57,16 +40,16 @@ pub(crate) async fn init_and_run(
 }
 
 pub async fn run_server(
-    config: Config,
+    config: Arc<RwLock<Config>>,
     java_home: Option<String>,
     full_path: bool,
 ) {
-    let config = Arc::new(RwLock::new(config));
+    let config = Arc::clone(&config);
     let java_home = Arc::new(java_home);
 
     let addr = ([0, 0, 0, 0], 29090);
     let ip_addr = std::net::Ipv4Addr::from(addr.0);
-    let routes = setup_routes(java_home, full_path, config.clone());
+    let routes = setup_routes(java_home, full_path, config);
     let server = warp::serve(routes).bind((ip_addr, addr.1));
     let server_handle = tokio::spawn(server);
 

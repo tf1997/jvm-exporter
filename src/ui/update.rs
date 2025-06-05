@@ -78,6 +78,7 @@ fn app_buttons(download_url: String) -> impl WidgetBuilder {
             @OutlinedButton {
                 on_tap: move |e| {
                     show_info_dialog("Update cancelled. The application will close in 3 seconds.", e.window());
+                    std::process::exit(0);
                 },
                 @{ Label::new("Cancel") }
             }

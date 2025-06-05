@@ -32,10 +32,6 @@ pub(crate) async fn init_and_run(
         }
     } else {
         run_server(config.clone(), java_home_arg, full_path_arg).await;
-        // Also call check_and_update here if no_ui is true
-        if let Err(e) = crate::updater::check_and_update(config).await {
-            eprintln!("Update check failed: {}", e);
-        }
     }
 }
 
@@ -61,6 +57,7 @@ pub async fn run_server(
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             println!("Received Ctrl+C, shutting down.");
+            std::process::exit(0);
         },
         res = server_handle => {
             if let Err(e) = res {

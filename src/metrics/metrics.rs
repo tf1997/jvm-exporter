@@ -27,6 +27,8 @@ pub struct Metrics {
     pub(crate) active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
     pub(crate) jstat_labels:
         Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
+    pub(crate) probe_metrics: ProbeMetrics,
+    pub(crate) version: GaugeVec,
 }
 
 pub(crate) struct ProcessMetrics {
@@ -55,6 +57,13 @@ pub(crate) struct SystemMetrics {
     pub(crate) open_file: GaugeVec,
     pub(crate) open_file_limit: GaugeVec,
     pub(crate) tcp_connection_states: GaugeVec,
+}
+
+pub(crate) struct ProbeMetrics {
+    pub(crate) probe_tcp_success: GaugeVec,
+    pub(crate) probe_tcp_duration_seconds: GaugeVec,
+    pub(crate) probe_ping_success: GaugeVec,
+    pub(crate) probe_ping_duration_seconds: GaugeVec,
 }
 
 impl Metrics {
@@ -344,12 +353,68 @@ impl Metrics {
             }
         };
 
+        let probe_metrics = {
+
+            let probe_tcp_success = GaugeVec::new(
+                prometheus::Opts::new("probe_tcp_success", "TCP probe success status"),
+                &["host", "port"],
+            )
+            .expect("Failed to create probe_tcp_success GaugeVec");
+            registry
+                .register(Box::new(probe_tcp_success.clone()))
+                .expect("Failed to register probe_tcp_success metric");
+
+            let probe_tcp_duration_seconds= GaugeVec::new(
+                prometheus::Opts::new("probe_tcp_duration_seconds", "Duration of TCP probe in seconds"),
+                &["host", "port"],
+            )
+            .expect("Failed to create probe_tcp_duration_seconds GaugeVec");
+            registry
+                .register(Box::new(probe_tcp_duration_seconds.clone()))
+                .expect("Failed to register probe_tcp_duration_seconds metric");
+
+            let probe_ping_success= GaugeVec::new(
+                prometheus::Opts::new("probe_ping_success", "Ping probe success status"),
+                &["host"],
+            )
+            .expect("Failed to create probe_ping_success GaugeVec");
+            registry
+                .register(Box::new(probe_ping_success.clone()))
+                .expect("Failed to register probe_ping_success metric");
+
+            let probe_ping_duration_seconds = GaugeVec::new(
+                prometheus::Opts::new("probe_ping_duration_seconds", "Duration of Ping probe in seconds"),
+                &["host"],
+            )
+            .expect("Failed to create probe_ping_duration_seconds GaugeVec");
+            registry
+                .register(Box::new(probe_ping_duration_seconds.clone()))
+                .expect("Failed to register probe_ping_duration_seconds metric");
+
+            ProbeMetrics {
+                probe_tcp_success,
+                probe_tcp_duration_seconds,
+                probe_ping_success,
+                probe_ping_duration_seconds,
+            }
+        };
+        let version = GaugeVec::new(
+            prometheus::Opts::new("ferris_watch_version", "Version of ferris-watch"),
+            &["version"],
+        )
+        .expect("Failed to create ferris_watch_version GaugeVec");
+        registry
+            .register(Box::new(version.clone()))
+            .expect("Failed to register ferris_watch_version metric");
+
         Metrics {
             process_metrics,
             system_metrics,
+            probe_metrics,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
             config,
+            version,
         }
     }
 }

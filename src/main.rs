@@ -4,6 +4,7 @@ mod routes;
 mod config;
 mod updater;
 mod installer;
+mod probes;
 mod ui{
     pub mod home;
     pub mod update;

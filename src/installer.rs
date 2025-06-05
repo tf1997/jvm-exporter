@@ -1,14 +1,33 @@
 use std::error::Error;
 use std::fs;
 use std::io::Write;
-use std::path::{Path};
+use std::path::{Path, PathBuf};
+use crate::updater;
+use log::{error};
 
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
-pub async fn install_application(new_exe_path: &Path) -> Result<(), Box<dyn Error>> {
+pub async fn install_application() -> Result<(), Box<dyn Error>> {
+
+    let app_data_dir = match updater::get_app_data_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            error!("Error getting app data directory: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let current_exe = std::env::current_exe().unwrap();
+    let app_name = current_exe.file_name().unwrap().to_str().unwrap();
+    let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}", app_name));
+
+    if !downloaded_file_path.exists() {
+        // show_info_dialog("No new installer found in download directory. Please update first.", window.clone());
+        error!("No new installer found ({})in download directory. Please update first.", downloaded_file_path.display());
+        std::process::exit(1);
+    }
     
     let app_name = env!("CARGO_PKG_NAME");
 
@@ -94,7 +113,7 @@ pub async fn install_application(new_exe_path: &Path) -> Result<(), Box<dyn Erro
         }
 
         // Copy the new executable to the target path, overwriting if it exists
-        fs::copy(new_exe_path, &binary_target_path)?;
+        fs::copy(downloaded_file_path, &binary_target_path)?;
         println!("New executable copied to: {}", binary_target_path);
 
         let java_home = std::env::var("JAVA_HOME").ok();

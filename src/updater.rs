@@ -52,7 +52,7 @@ pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<Stri
     }
 }
 
-pub async fn download_update(download_url: &str) -> Result<(), Box<dyn Error>> {
+pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Error>> {
     info!("Downloading update from: {}", download_url);
     let response = ureq::get(download_url).call()?;
     if response.status() != 200 {
@@ -72,7 +72,7 @@ pub async fn download_update(download_url: &str) -> Result<(), Box<dyn Error>> {
 
     info!("Please manually replace your current executable at {:?} with the new one at {:?} and restart the application.",
         current_exe, downloaded_file_path);
-    Ok(())
+    Ok(downloaded_file_path)
 }
 
 async fn fetch_latest_version(url: &str) -> Result<String, Box<dyn Error>> {

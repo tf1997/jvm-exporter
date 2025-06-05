@@ -1,8 +1,6 @@
 
 use crate::installer;
-use crate::updater;
 use ribir::prelude::*;
-use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::runtime::Runtime;
 use log::{info, error};
@@ -26,25 +24,7 @@ fn app_buttons() -> impl WidgetBuilder {
                     std::thread::spawn(move || {
                         let rt = Runtime::new().unwrap();
                         rt.block_on(async {
-                            let app_data_dir = match updater::get_app_data_dir() {
-                                Ok(dir) => dir,
-                                Err(e) => {
-                                    // show_info_dialog(format!("Error getting app data directory: {}", e), window.clone());
-                                    error!("Error getting app data directory: {}", e);
-                                    return;
-                                }
-                            };
-                            let current_exe = std::env::current_exe().unwrap();
-                            let app_name = current_exe.file_name().unwrap().to_str().unwrap();
-                            let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}", app_name));
-
-                            if !downloaded_file_path.exists() {
-                                // show_info_dialog("No new installer found in download directory. Please update first.", window.clone());
-                                error!("No new installer found ({})in download directory. Please update first.", downloaded_file_path.display());
-                                return;
-                            }
-
-                            match installer::install_application(&downloaded_file_path).await {
+                            match installer::install_application().await {
                                 Ok(_) => {
                                     // show_info_dialog("Installation successful! Please restart the application.", window.clone());
                                     info!("nstallation successful! Please restart the application.");

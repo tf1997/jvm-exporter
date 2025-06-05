@@ -24,6 +24,8 @@ use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
 use dirs;
 use std::sync::{Arc, RwLock};
+use chrono::{Local, Duration, Timelike};
+use tokio::time::{sleep};
 
 #[tokio::main]
 async fn main() {
@@ -100,8 +102,14 @@ async fn main() {
         .arg(
             clap::Arg::new("install_ui")
                 .long("install-ui")
-                .help("Run the program with a install UI (for Windows and macOS)"),
+                .help("Run the program with an install UI (for Windows and macOS)"),
         )
+        .arg(
+            clap::Arg::new("install_no_ui")
+                .long("install")
+                .help("Run the program with an installer role"),
+        )
+    
         .get_matches();
 
     let java_home = matches.value_of("java_home").map(|s| s.to_string());
@@ -110,7 +118,22 @@ async fn main() {
     let should_disable_auto_start = matches.is_present("disable_auto_start");
     let no_ui = matches.is_present("no_ui");
     let install_ui = matches.is_present("install_ui");
+    let install_no_ui = matches.is_present("install_no_ui");
 
+    if install_no_ui {
+        match installer::install_application().await {
+            Ok(_) => {
+                // show_info_dialog("Installation successful! Please restart the application.", window.clone());
+                info!("Installation successful! Please restart the application.");
+                std::process::exit(0);
+            },
+            Err(e) => {
+                error!("Installation failed: {}", e);
+                std::process::exit(0);
+                // show_info_dialog(format!("Installation failed: {}. Please run as administrator.", e), window.clone());
+            }
+        }
+    }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         if install_ui {
@@ -137,51 +160,71 @@ async fn main() {
         }
 
         if auto_start || should_disable_auto_start || no_ui {
-            monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, config).await;
+            monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, Arc::clone(&config)).await;
         } else {
             // If no specific flags, launch UI which will then handle starting the monitor
-            crate::ui::home::app(config);
+            crate::ui::home::app(Arc::clone(&config));
         }
     }
 
     // Spawn a task for daily update checks
-    // let config_for_daily_update = Arc::clone(&config);
-    // tokio::spawn(async move {
-    //     loop {
-    //         let config = Arc::clone(&config_for_daily_update);
-    //         // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
-    //         let now = Local::now();
-    //         let next_check = (now + Duration::from_secs(24 * 3600)) // Add 24 hours
-    //             .with_hour(3).unwrap() // Set to 3 AM
-    //             .with_minute(0).unwrap()
-    //             .with_second(0).unwrap()
-    //             .with_nanosecond(0).unwrap();
-
-    //         let sleep_duration = if next_check > now {
-    //             next_check.signed_duration_since(now).to_std().unwrap_or_default()
-    //         } else {
-    //             // If next_check is in the past (e.g., if current time is after 3 AM),
-    //             // schedule for 3 AM tomorrow.
-    //             (next_check + Duration::from_secs(24 * 3600)).signed_duration_since(now).to_std().unwrap_or_default()
-    //         };
-
-    //         info!("Next update check scheduled in: {:?}", sleep_duration);
-    //         sleep(sleep_duration).await;
-
-    //         info!("Performing scheduled update check...");
-    //         if let Some(download_url) = updater::check_for_update(config).await.unwrap_or(None) {
-    //             info!("New version available! Downloading update...");
-    //             if let Err(e) = updater::download_update(&download_url).await {
-    //                 error!("Scheduled update download failed: {}", e);
-    //             }
-    //         }
-    //     }
-    // });
+    let config_for_daily_update = Arc::clone(&config);
+    tokio::spawn(schedule_daily_update_check(config_for_daily_update));
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         println!("Starting ferris-watch directly (non-Windows/macOS).");
-        monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, config).await;
+        monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, Arc::clone(&config)).await;
+    }
+}
+
+async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>>) {
+    loop {
+        let config = Arc::clone(&config_for_daily_update);
+        // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
+        let now = Local::now();
+        let next_check = (now + Duration::hours(24)) // Add 24 hours
+            .with_hour(3).unwrap() // Set to 3 AM
+            .with_minute(0).unwrap()
+            .with_second(0).unwrap()
+            .with_nanosecond(0).unwrap();
+
+        let sleep_duration = if next_check > now {
+            next_check.signed_duration_since(now).to_std().unwrap_or_default()
+        } else {
+            // If next_check is in the past (e.g., if current time is after 3 AM),
+            // schedule for 3 AM tomorrow.
+            (next_check + Duration::hours(24)).signed_duration_since(now).to_std().unwrap_or_default()
+        };
+
+        info!("Next update check scheduled in: {:?}", sleep_duration);
+        sleep(sleep_duration).await;
+
+        info!("Performing scheduled update check...");
+        if let Some(download_url) = updater::check_for_update(config).await.unwrap_or(None) {
+            info!("New version available! Downloading update...");
+            match updater::download_update(&download_url).await {
+                Ok(downloaded_file_path) => {
+                    info!("Scheduled update download completed successfully.");
+                    info!("Attempting to run new executable: {:?}", downloaded_file_path);
+                    match std::process::Command::new(&downloaded_file_path)
+                        .arg("--install_no_ui")
+                        .spawn() {
+                        Ok(_) => {
+                            std::process::exit(0); // Exit the current process after starting the new one
+                        },
+                        Err(e) => {
+                            error!("Failed to start new executable: {}", e);
+                            // No UI echo as per user's request
+                        }
+                    }
+                },
+                Err(e) => {
+                    error!("Scheduled update download failed: {}", e);
+                }
+            }
+
+        }
     }
 }
 

@@ -1,6 +1,4 @@
 use ribir::{prelude::*};
-use crate::config::Config;
-use std::sync::{Arc, RwLock};
 use crate::updater;
 use log::{info, error};
 use std::path::PathBuf;
@@ -101,7 +99,7 @@ fn show_info_dialog(message: impl Into<CowArc<str>>, window: Rc<ribir::prelude::
     overlay.show(window);   
 }
 
-pub fn app(config: Arc<RwLock<Config>>, download_url: String)  {
+pub fn app(download_url: String)  {
     App::run(app_buttons(download_url))
     .with_title("Ferris Watch Update")
     .with_size(Size::new(400., 150.))

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 #[cfg(target_os = "windows")]
 use winreg::enums::*;

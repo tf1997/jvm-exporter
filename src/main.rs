@@ -22,14 +22,20 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
-use std::path::Path;
 use dirs;
 use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 async fn main() {
-    let mut config = Config::new("/Users/tengfei.chu/Code/jvm-exporter/src/config.yaml").unwrap_or_else(|e| {
-        error!("Failed to load config.yaml: {}", e);
+    let app_name = env!("CARGO_PKG_NAME");
+    
+    let target_dir = dirs::data_dir()
+            .ok_or("Could not find a suitable data directory for Windows.").unwrap()
+            .join(app_name);
+    let config_path = target_dir.join("config.yaml");
+    
+    let mut config = Config::new(config_path.to_str().unwrap()).unwrap_or_else(|e| {
+        eprintln!("Failed to load config.yaml: {}", e);
         // Provide a default config if loading fails
         Config {
             log_level: None,
@@ -54,61 +60,10 @@ async fn main() {
 
     let config = Arc::new(RwLock::new(config));
 
-    // Configure logging to a file in the user's log directory
-    let log_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| Path::new(".").to_path_buf())
-        .join("ferris-watch")
-        .join("logs");
-    let log_file_path = log_dir.join("ferris-watch.log");
+    init_logger(app_name, Arc::clone(&config));
 
-    // Create log directory if it doesn't exist
-    if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
-    }
-    eprintln!("Create log directory successfully {:?}", log_dir);
-    let log_level_str = config
-        .read()
-        .unwrap()
-        .log_level
-        .clone()
-        .unwrap_or_else(|| "info".to_string());
-    let log_level = match log_level_str.to_lowercase().as_str() {
-        "error" => LevelFilter::Error,
-        "warn" => LevelFilter::Warn,
-        "info" => LevelFilter::Info,
-        "debug" => LevelFilter::Debug,
-        "trace" => LevelFilter::Trace,
-        _ => LevelFilter::Info, // Default to Info
-    };
-
-    let stdout_appender = log4rs::append::console::ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
-        .build();
-
-    let log4rs_config = {
-        let mut config_builder = Log4rsConfig::builder();
-        config_builder = config_builder.appender(Appender::builder().build("stdout", Box::new(stdout_appender)));
-
-        match FileAppender::builder()
-            .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
-            .build(&log_file_path)
-        {
-            Ok(file_appender) => {
-                config_builder = config_builder.appender(Appender::builder().build("file", Box::new(file_appender)));
-                config_builder.build(Root::builder().appender("file").appender("stdout").build(log_level))
-            },
-            Err(e) => {
-                eprintln!("Failed to build file appender for {:?}: {}", log_file_path, e);
-                log::error!("Failed to set up file logging. Logging to console only.");
-                config_builder.build(Root::builder().appender("stdout").build(log_level))
-            }
-        }
-    }.expect("Failed to build log4rs config");
-
-    log4rs::init_config(log4rs_config).expect("Failed to initialize log4rs");
-
-    log::info!("Logs are being written to: {:?}", log_file_path);
-    log::debug!("Log4rs initialized successfully.");
+    info!("Using config file at: {:?}", config_path);
+    info!("config.to_str() is: {:?}", config);
 
     let matches = clap::App::new("ferris-watch")
         .version("0.3.6")
@@ -160,7 +115,7 @@ async fn main() {
     {
         if install_ui {
             info!("Running in install UI mode.");
-            crate::ui::install::app(Arc::clone(&config));
+            crate::ui::install::app();
             return; // Exit main after showing install UI
         }
         if !no_ui {
@@ -169,7 +124,7 @@ async fn main() {
             match updater::check_for_update(config_for_update_check).await {
                 Ok(Some(download_url)) => {
                     info!("Update available. Navigating to update page.");
-                    crate::ui::update::app(config, download_url);
+                    crate::ui::update::app(download_url);
                     return; // Exit main after showing update UI
                 },
                 Ok(None) => {
@@ -228,4 +183,62 @@ async fn main() {
         println!("Starting ferris-watch directly (non-Windows/macOS).");
         monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, config).await;
     }
+}
+
+fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
+    let log_dir = std::env::temp_dir()
+        .join(app_name)
+        .join("logs");
+
+    let log_file_path = log_dir.join("ferris-watch.log");
+
+    let log_level_str = config
+        .read()
+        .unwrap()
+        .log_level
+        .clone()
+        .unwrap_or_else(|| "info".to_string());
+    let log_level = match log_level_str.to_lowercase().as_str() {
+        "error" => LevelFilter::Error,
+        "warn" => LevelFilter::Warn,
+        "info" => LevelFilter::Info,
+        "debug" => LevelFilter::Debug,
+        "trace" => LevelFilter::Trace,
+        _ => LevelFilter::Info, // Default to Info
+    };
+
+    // Create log directory if it doesn't exist
+    if let Err(e) = fs::create_dir_all(&log_dir) {
+        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+    }
+    eprintln!("Create log directory successfully {:?}", log_dir);
+
+    let stdout_appender = log4rs::append::console::ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
+        .build();
+
+    let log4rs_config = {
+        let mut config_builder = Log4rsConfig::builder();
+        config_builder = config_builder.appender(Appender::builder().build("stdout", Box::new(stdout_appender)));
+
+        match FileAppender::builder()
+            .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
+            .build(&log_file_path)
+        {
+            Ok(file_appender) => {
+                config_builder = config_builder.appender(Appender::builder().build("file", Box::new(file_appender)));
+                config_builder.build(Root::builder().appender("file").appender("stdout").build(log_level))
+            },
+            Err(e) => {
+                eprintln!("Failed to build file appender for {:?}: {}", log_file_path, e);
+                log::error!("Failed to set up file logging. Logging to console only.");
+                config_builder.build(Root::builder().appender("stdout").build(log_level))
+            }
+        }
+    }.expect("Failed to build log4rs config");
+
+    log4rs::init_config(log4rs_config).expect("Failed to initialize log4rs");
+
+    log::info!("Logs are being written to: {:?}", log_file_path);
+    log::debug!("Log4rs initialized successfully.");
 }

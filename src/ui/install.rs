@@ -1,13 +1,12 @@
-use crate::config::Config;
+
 use crate::installer;
 use crate::updater;
 use ribir::prelude::*;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
 use tokio::runtime::Runtime;
 use log::{info, error};
-fn app_buttons( config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
+fn app_buttons() -> impl WidgetBuilder {
     fn_widget! {
 
         @Column {
@@ -23,8 +22,7 @@ fn app_buttons( config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
             margin: EdgeInsets::all(20.),
             item_gap: 20.,
             @FilledButton {
-                on_tap: move |e| {
-                    let window = e.window();
+                on_tap: move |_| {
                     std::thread::spawn(move || {
                         let rt = Runtime::new().unwrap();
                         rt.block_on(async {
@@ -90,8 +88,8 @@ fn show_info_dialog(message: impl Into<CowArc<str>>, window: Rc<ribir::prelude::
     overlay.show(window);
 }
 
-pub fn app(config: Arc<RwLock<Config>>) {
-    App::run(app_buttons(config))
+pub fn app() {
+    App::run(app_buttons())
         .with_title("Ferris Watch")
         .with_size(Size::new(400., 150.))
         .with_resizable(false);

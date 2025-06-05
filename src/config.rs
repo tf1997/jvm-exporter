@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use warp::Filter;
 use ureq;
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Config {
     pub log_level: Option<String>,
     pub java_home: Option<String>,
@@ -37,8 +37,18 @@ pub fn with_config(
 }
 
 pub async fn fetch_and_merge_config(url: &str, config: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
-    let response = ureq::get(url).call()?.into_string()?;
-    let remote_config: Config = serde_yaml::from_str(&response)?;
+    let response = ureq::get(url).call()?;
+    let content_type = response.header("Content-Type").unwrap_or("");
+    let yaml_string = if content_type.contains("yaml") || content_type.contains("text") {
+        response.into_string()?
+    } else {
+        let mut reader = response.into_reader();
+        let mut buf = String::new();
+        use std::io::Read;
+        reader.read_to_string(&mut buf)?;
+        buf
+    };
+    let remote_config: Config = serde_yaml::from_str(&yaml_string)?;
     if remote_config.log_level.is_some() {
         config.log_level = remote_config.log_level;
     }

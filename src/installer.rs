@@ -1,9 +1,8 @@
 use std::error::Error;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use crate::updater;
-use log::{error};
+use std::path::{Path};
+use log::{info};
 
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
@@ -11,28 +10,14 @@ use winreg::enums::*;
 use winreg::RegKey;
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {
-
-    let app_data_dir = match updater::get_app_data_dir() {
-        Ok(dir) => dir,
-        Err(e) => {
-            error!("Error getting app data directory: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let current_exe = std::env::current_exe().unwrap();
-    let app_name = current_exe.file_name().unwrap().to_str().unwrap();
-    let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}", app_name));
-
-    if !downloaded_file_path.exists() {
-        // show_info_dialog("No new installer found in download directory. Please update first.", window.clone());
-        error!("No new installer found ({})in download directory. Please update first.", downloaded_file_path.display());
-        std::process::exit(1);
-    }
+    let new_exe_path = std::env::current_exe().unwrap();
     
     let app_name = env!("CARGO_PKG_NAME");
 
     #[cfg(target_os = "windows")]
     {
+        use warp::filters::log::Info;
+
         let current_exe_path = std::env::current_exe()?;
         let target_dir = dirs::data_dir()
             .ok_or("Could not find a suitable data directory for Windows.")?
@@ -55,6 +40,8 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         }
 
         // Copy the new executable to the secure directory, overwriting if it exists
+        info!("new_exe_path: {}", new_exe_path.display());
+        info!("target_exe_path: {}", target_exe_path.display());
         fs::copy(new_exe_path, &target_exe_path)?;
         println!("New executable copied to secure location: {}", target_exe_path.display());
 
@@ -113,7 +100,9 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         }
 
         // Copy the new executable to the target path, overwriting if it exists
-        fs::copy(downloaded_file_path, &binary_target_path)?;
+        info!("new_exe_path: {}", new_exe_path.display());
+        info!("binary_target_path: {}", binary_target_path);
+        fs::copy(new_exe_path, &binary_target_path)?;
         println!("New executable copied to: {}", binary_target_path);
 
         let java_home = std::env::var("JAVA_HOME").ok();

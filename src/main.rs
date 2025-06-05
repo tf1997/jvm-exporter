@@ -106,7 +106,7 @@ async fn main() {
         )
         .arg(
             clap::Arg::new("install_no_ui")
-                .long("install")
+                .long("install-no-ui")
                 .help("Run the program with an installer role"),
         )
     

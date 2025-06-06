@@ -143,9 +143,24 @@ async fn main() {
             }
         }
     }
-    // Spawn a task for daily update checks
-    let config_for_daily_update = Arc::clone(&config);
-    tokio::spawn(schedule_daily_update_check(config_for_daily_update));
+    
+    #[cfg(target_os = "windows")]
+    {
+        use winapi::um::processthreadsapi::{GetCurrentProcess, SetPriorityClass};
+        use winapi::um::winbase::{ABOVE_NORMAL_PRIORITY_CLASS};
+        unsafe {
+            let process_handle = GetCurrentProcess();
+            let result = SetPriorityClass(process_handle, ABOVE_NORMAL_PRIORITY_CLASS);
+
+            if result != 0 {
+                info!("set process priority to ABOVE_NORMAL_PRIORITY_CLASS successfully.");
+            } else {
+                error!("Failed to set process priority to ABOVE_NORMAL_PRIORITY_CLASS. Error code: {}", std::io::Error::last_os_error());
+            }
+        }
+    }
+    
+
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         if install_ui {
@@ -172,6 +187,9 @@ async fn main() {
         }
 
         if auto_start || should_disable_auto_start || no_ui {
+            // Spawn a task for daily update checks
+            let config_for_daily_update = Arc::clone(&config);
+            tokio::spawn(schedule_daily_update_check(config_for_daily_update));
             monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, Arc::clone(&config)).await;
         } else {
             // If no specific flags, launch UI which will then handle starting the monitor
@@ -181,7 +199,10 @@ async fn main() {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        println!("Starting ferris-watch directly (non-Windows/macOS).");
+        info!("Starting ferris-watch directly.");
+        // Spawn a task for daily update checks
+        let config_for_daily_update = Arc::clone(&config);
+        tokio::spawn(schedule_daily_update_check(config_for_daily_update));
         monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, Arc::clone(&config)).await;
     }
 }

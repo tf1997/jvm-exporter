@@ -70,7 +70,14 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
     let app_data_dir = get_app_data_dir()?;
     let current_exe = std::env::current_exe()?;
     let app_name = env!("CARGO_PKG_NAME");
-    let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}_new", app_name)); // Save with a temporary name
+    let downloaded_file_path: PathBuf = {
+        if cfg!(target_os = "windows") {
+            app_data_dir.join(format!("{}.exe_new", app_name)) // Save with a temporary name
+        } else {
+            app_data_dir.join(format!("{}_new", app_name)) // Save with a temporary name
+        }
+    };
+    
 
     info!("Saving new executable to: {:?}", downloaded_file_path);
     fs::write(&downloaded_file_path, bytes).await?;

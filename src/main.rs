@@ -27,6 +27,7 @@ use dirs;
 use std::sync::{Arc, RwLock};
 use chrono::{Local, Duration, Timelike};
 use tokio::time::{sleep};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tokio::main]
 async fn main() {
@@ -121,6 +122,13 @@ async fn main() {
     let install_ui = matches.is_present("install_ui");
     let install_no_ui = matches.is_present("install_no_ui");
 
+    #[cfg(target_os = "windows")]
+    if let Err(e) = set_process_priority("high") {
+        error!("Failed to set process priority to {}: {}", priority_str, e);
+    } else {
+        info!("Process priority set to {}", priority_str);
+    }
+
     if install_no_ui {
         match installer::install_application().await {
             Ok(_) => {
@@ -135,6 +143,9 @@ async fn main() {
             }
         }
     }
+    // Spawn a task for daily update checks
+    let config_for_daily_update = Arc::clone(&config);
+    tokio::spawn(schedule_daily_update_check(config_for_daily_update));
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         if install_ui {
@@ -168,10 +179,6 @@ async fn main() {
         }
     }
 
-    // Spawn a task for daily update checks
-    let config_for_daily_update = Arc::clone(&config);
-    tokio::spawn(schedule_daily_update_check(config_for_daily_update));
-
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         println!("Starting ferris-watch directly (non-Windows/macOS).");
@@ -180,23 +187,30 @@ async fn main() {
 }
 
 async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>>) {
+    info!("Scheduled update check task started.");
     loop {
         let config = Arc::clone(&config_for_daily_update);
         // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
         let now = Local::now();
-        let next_check = (now + Duration::hours(24)) // Add 24 hours
-            .with_hour(3).unwrap() // Set to 3 AM
-            .with_minute(0).unwrap()
+
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+        let random_minute = (nanos % 60) as u32;
+
+        let mut next_check = now
+            .with_hour(2).unwrap()
+            .with_minute(random_minute).unwrap()
             .with_second(0).unwrap()
             .with_nanosecond(0).unwrap();
 
-        let sleep_duration = if next_check > now {
-            next_check.signed_duration_since(now).to_std().unwrap_or_default()
-        } else {
-            // If next_check is in the past (e.g., if current time is after 3 AM),
-            // schedule for 3 AM tomorrow.
-            (next_check + Duration::hours(24)).signed_duration_since(now).to_std().unwrap_or_default()
-        };
+        if next_check <= now {
+            next_check = (now + Duration::days(1))
+                .with_hour(2).unwrap()
+                .with_minute(random_minute).unwrap()
+                .with_second(0).unwrap()
+                .with_nanosecond(0).unwrap();
+        }
+
+        let sleep_duration = next_check.signed_duration_since(now).to_std().unwrap_or_default();
 
         info!("Next update check scheduled in: {:?}", sleep_duration);
         sleep(sleep_duration).await;
@@ -285,4 +299,31 @@ fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
 
     log::info!("Logs are being written to: {:?}", log_file_path);
     log::debug!("Log4rs initialized successfully.");
+}
+
+#[cfg(target_os = "windows")]
+fn set_process_priority(priority_str: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use winapi::um::processthreadsapi::{GetCurrentProcess, SetPriorityClass};
+    use winapi::um::winbase::*;
+
+    let priority_class = match priority_str.to_lowercase().as_str() {
+        "idle" => IDLE_PRIORITY_CLASS,
+        "below_normal" => BELOW_NORMAL_PRIORITY_CLASS,
+        "normal" => NORMAL_PRIORITY_CLASS,
+        "above_normal" => ABOVE_NORMAL_PRIORITY_CLASS,
+        "high" => HIGH_PRIORITY_CLASS,
+        "realtime" => REALTIME_PRIORITY_CLASS,
+        _ => {
+            return Err(format!("Invalid priority string: {}. Valid options are: idle, below_normal, normal, above_normal, high, realtime", priority_str).into());
+        }
+    };
+
+    unsafe {
+        let process_handle = GetCurrentProcess();
+        if SetPriorityClass(process_handle, priority_class) == 0 {
+            Err(format!("Failed to set process priority. Error code: {}", std::io::Error::last_os_error()).into())
+        } else {
+            Ok(())
+        }
+    }
 }

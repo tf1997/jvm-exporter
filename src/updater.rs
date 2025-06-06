@@ -1,4 +1,4 @@
-use log::{info};
+use log::{info, warn};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -31,7 +31,6 @@ pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<Stri
         .ok_or("update_service_url not found in config.yaml")?
         .to_string();
     let version_info_url = update_service_url.clone() + "/version.json";
-    let download_file_url = update_service_url.clone() + "/release/latest";
 
     let current_version = env!("CARGO_PKG_VERSION"); // Get current version from Cargo.toml
     info!("Current version: {}", current_version);
@@ -45,6 +44,13 @@ pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<Stri
 
     if latest_version > current_version_parsed {
         info!("New version available!");
+        let platform_string = get_platform_string();
+        let mut app_name = env!("CARGO_PKG_NAME").to_string();
+        if cfg!(target_os = "windows") {
+            app_name.push_str(".exe");
+        }
+        let download_file_url = format!("{}/release/{}/{}/{}", update_service_url, latest_version_str, platform_string, app_name);
+        info!("Constructed download URL: {}", download_file_url);
         Ok(Some(download_file_url))
     } else {
         info!("No update available. You are running the latest version.");
@@ -63,7 +69,7 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
 
     let app_data_dir = get_app_data_dir()?;
     let current_exe = std::env::current_exe()?;
-    let app_name = current_exe.file_name().unwrap().to_str().unwrap();
+    let app_name = env!("CARGO_PKG_NAME");
     let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}_new", app_name)); // Save with a temporary name
 
     info!("Saving new executable to: {:?}", downloaded_file_path);
@@ -99,4 +105,32 @@ pub fn get_app_data_dir() -> Result<PathBuf, Box<dyn Error>> {
     // Ensure the directory exists
     std::fs::create_dir_all(&data_dir)?;
     Ok(data_dir)
+}
+
+// Helper function to get the platform string (e.g., "windows-x64", "macos-x64", "linux-x64")
+fn get_platform_string() -> String {
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
+    };
+
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "x86") {
+        "x32"
+    } else if cfg!(target_arch = "arm") {
+        "arm"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    }
+    else {
+        "unknown"
+    };
+
+    format!("{}-{}", os, arch)
 }

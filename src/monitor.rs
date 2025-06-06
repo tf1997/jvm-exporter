@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use log::{info, error};
 
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
@@ -26,7 +27,7 @@ pub(crate) async fn init_and_run(
             Err(e) => eprintln!("Failed to configure auto-start: {}", e),
         }
     } else if should_disable_auto_start {
-        match disable_auto_start() {
+        match disable_auto_start() { // Call async function
             Ok(_) => println!("Auto-start disabled successfully."),
             Err(e) => eprintln!("Failed to disable auto-start: {}", e),
         }
@@ -51,17 +52,17 @@ pub async fn run_server(
 
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    println!("Server started successfully");
-    println!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
+    info!("Server started successfully");
+    info!("Listening on http://{}:{}/metrics", "127.0.0.1", addr.1);
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            println!("Received Ctrl+C, shutting down.");
+            info!("Received Ctrl+C, shutting down.");
             std::process::exit(0);
         },
         res = server_handle => {
             if let Err(e) = res {
-                eprintln!("Server error: {}", e);
+                error!("Server error: {}", e);
             }
         },
     }

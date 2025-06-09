@@ -37,15 +37,9 @@ pub fn run(metrics: Arc<Metrics>) {
                             }
                         },
                         _ = cpu_task_interval.tick() => {
-                            let mut system = System::new_all();
-                             metrics
-                            .probe_metrics
-                            .probe_tcp_success
-                            .with_label_values(&["test", "test"])
-                            .set(1.0);
-                            
+                            let mut system = System::new_all();        
                             tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
-                            system.refresh_cpu_all();
+                            system.refresh_cpu_usage();
                             // Update CPU usage
                             for (i, processor) in system.cpus().iter().enumerate() {
                                 let cpu_label = format!("cpu_{}", i);

@@ -244,7 +244,7 @@ async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>
                     info!("Scheduled update download completed successfully.");
                     info!("Attempting to run new executable: {:?}", downloaded_file_path);
                     match std::process::Command::new(&downloaded_file_path)
-                        .arg("--install_no_ui")
+                        .arg("--install-no-ui")
                         .spawn() {
                         Ok(_) => {
                             std::process::exit(0); // Exit the current process after starting the new one
@@ -288,9 +288,9 @@ fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
 
     // Create log directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("Failed to create log directory {:?}: {}", log_dir, e);
+        info!("Failed to create log directory {:?}: {}", log_dir, e);
     }
-    eprintln!("Create log directory successfully {:?}", log_dir);
+    info!("Create log directory successfully {:?}", log_dir);
 
     let stdout_appender = log4rs::append::console::ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))

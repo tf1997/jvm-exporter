@@ -2,12 +2,15 @@ pub use crate::metrics::metrics::{
     Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES,
 };
 use log::{error, info, warn};
-use netstat_esr::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, SocketInfo, ProtocolSocketInfo};
+use netstat_esr::{
+    get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, SocketInfo,
+};
 use prometheus::{Encoder, GaugeVec, Registry};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::Arc;
-use sysinfo::{Disks, Pid, System};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Pid, RefreshKind, System};
 use tokio::process::Command;
 
 pub(crate) async fn handle_metrics(
@@ -39,9 +42,6 @@ async fn update_metrics(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_processes = Vec::new();
     let mut host_process_names: HashSet<String> = HashSet::new();
-
-    let mut system = System::new_all();
-    system.refresh_all(); // Initial refresh for all system data
 
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP;
@@ -80,7 +80,7 @@ async fn update_metrics(
                     "Skipping container process '{}' in '{}': already exists on host.",
                     proc_info.process, proc_info.container
                 );
-                false   
+                false
             } else {
                 true
             }
@@ -89,11 +89,13 @@ async fn update_metrics(
 
     if !filtered_container_processes.is_empty() {
         info!(
-        "Filtered Container Processes (excluding duplicates): {}",
-        filtered_container_processes.len()
-    );
+            "Filtered Container Processes (excluding duplicates): {}",
+            filtered_container_processes.len()
+        );
     }
     all_processes.extend(filtered_container_processes);
+
+    let mut system = System::new_all();
 
     // 3. Collect System Processes from Config
     let config = metrics.config.read().unwrap().clone();
@@ -243,7 +245,14 @@ async fn update_metrics(
         return Ok(());
     }
     // Update CPU and Memory metrics
-    if let Err(e) = update_cpu_memory_metrics(Arc::clone(&metrics), &mut system, &sockets, &all_processes).await {
+    if let Err(e) = update_process_cpu_memory_metrics(
+        Arc::clone(&metrics),
+        &mut system,
+        &sockets,
+        &all_processes,
+    )
+    .await
+    {
         error!("Failed to update CPU and memory metrics: {}", e);
     }
 
@@ -425,18 +434,22 @@ async fn fetch_and_update_jstat(
 }
 
 // Update CPU and Memory metrics
-async fn update_cpu_memory_metrics(
+async fn update_process_cpu_memory_metrics(
     metrics: Arc<Metrics>,
-    system: &mut System, // Pass system as mutable reference
+    system: &mut System,    // Pass system as mutable reference
     sockets: &[SocketInfo], // Pass sockets as reference (changed from ProtocolSocketInfo)
     processes: &[ProcessInfo],
 ) -> Result<(), Box<dyn std::error::Error>> {
     // No need for System::new_all() or system.refresh_all() here, as it's done in update_metrics
     tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
 
+    let pids: Vec<Pid> = processes
+        .iter()
+        .filter_map(|p| Pid::from_str(p.pid.as_str()).ok())
+        .collect();
     system.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::All, // Refresh all processes
-        true, // Refresh process components
+        sysinfo::ProcessesToUpdate::Some(&pids), // Refresh all processes
+        true,                                    // Refresh process components
         sysinfo::ProcessRefreshKind::nothing() // Changed from new() to nothing()
             .with_cpu()
             .with_memory()
@@ -447,7 +460,8 @@ async fn update_cpu_memory_metrics(
     // Pre-process sockets to map PIDs to their associated TCP connections
     let mut pid_to_sockets: HashMap<u32, Vec<&SocketInfo>> = HashMap::new(); // Changed to SocketInfo
     for socket in sockets.iter() {
-        for &pid in &socket.associated_pids { // Access associated_pids directly
+        for &pid in &socket.associated_pids {
+            // Access associated_pids directly
             pid_to_sockets.entry(pid).or_default().push(socket);
         }
     }
@@ -540,7 +554,7 @@ async fn update_cpu_memory_metrics(
                         }
                     }
                 }
-                
+
                 for (state, count) in state_counts.iter() {
                     metrics
                         .process_metrics
@@ -557,16 +571,19 @@ async fn update_cpu_memory_metrics(
 
 async fn update_system_metrics(
     metrics: Arc<Metrics>,
-    system: &mut System, // Pass system as mutable reference
+    system: &mut System,    // Pass system as mutable reference
     sockets: &[SocketInfo], // Pass sockets as reference (changed from ProtocolSocketInfo)
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Rely on system.refresh_all() in update_metrics for overall refresh
     // Individual refreshes removed to avoid potential issues and redundancy
     // system.refresh_cpu();
     // system.refresh_memory();
-    // system.refresh_disks();
-    // system.refresh_networks();
     // Update Memory usage
+    system.refresh_specifics(
+        RefreshKind::nothing()
+            .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
+            .with_memory(MemoryRefreshKind::everything()),
+    );
     metrics
         .system_metrics
         .memory_usage
@@ -657,7 +674,8 @@ async fn update_system_metrics(
         state_counts.insert(state.to_string(), 0);
     }
     for socket in sockets.iter() {
-        if let ProtocolSocketInfo::Tcp(tcp_info) = &socket.protocol_socket_info { // Keep & here, as socket is &SocketInfo
+        if let ProtocolSocketInfo::Tcp(tcp_info) = &socket.protocol_socket_info {
+            // Keep & here, as socket is &SocketInfo
             *state_counts.entry(tcp_info.state.to_string()).or_insert(0) += 1;
         }
     }

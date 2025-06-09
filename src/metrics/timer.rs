@@ -1,7 +1,7 @@
 use crate::metrics::collect::Metrics;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{Networks, System};
+use sysinfo::{CpuRefreshKind, Networks, System};
 use tokio::time::interval;
 
 pub fn run(metrics: Arc<Metrics>) {
@@ -12,7 +12,7 @@ pub fn run(metrics: Arc<Metrics>) {
             let metrics = Arc::clone(&metrics);
             async move {
                 let mut network_task_interval = interval(Duration::from_millis(3000));
-                let mut cpu_task_interval = interval(Duration::from_millis(10000));
+                let mut cpu_task_interval = interval(Duration::from_millis(1000));
 
                 loop {
                     tokio::select! {
@@ -37,7 +37,10 @@ pub fn run(metrics: Arc<Metrics>) {
                             }
                         },
                         _ = cpu_task_interval.tick() => {
-                            let mut system = System::new_all();        
+                            let mut system = System::new_with_specifics(
+                                sysinfo::RefreshKind::nothing()
+                                .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
+                            );        
                             tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
                             system.refresh_cpu_usage();
                             // Update CPU usage

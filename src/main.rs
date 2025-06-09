@@ -122,13 +122,6 @@ async fn main() {
     let install_ui = matches.is_present("install_ui");
     let install_no_ui = matches.is_present("install_no_ui");
 
-    #[cfg(target_os = "windows")]
-    if let Err(e) = set_process_priority("high") {
-        error!("Failed to set process priority to {}: {}", priority_str, e);
-    } else {
-        info!("Process priority set to {}", priority_str);
-    }
-
     if install_no_ui {
         match installer::install_application().await {
             Ok(_) => {
@@ -322,29 +315,3 @@ fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
     log::debug!("Log4rs initialized successfully.");
 }
 
-#[cfg(target_os = "windows")]
-fn set_process_priority(priority_str: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use winapi::um::processthreadsapi::{GetCurrentProcess, SetPriorityClass};
-    use winapi::um::winbase::*;
-
-    let priority_class = match priority_str.to_lowercase().as_str() {
-        "idle" => IDLE_PRIORITY_CLASS,
-        "below_normal" => BELOW_NORMAL_PRIORITY_CLASS,
-        "normal" => NORMAL_PRIORITY_CLASS,
-        "above_normal" => ABOVE_NORMAL_PRIORITY_CLASS,
-        "high" => HIGH_PRIORITY_CLASS,
-        "realtime" => REALTIME_PRIORITY_CLASS,
-        _ => {
-            return Err(format!("Invalid priority string: {}. Valid options are: idle, below_normal, normal, above_normal, high, realtime", priority_str).into());
-        }
-    };
-
-    unsafe {
-        let process_handle = GetCurrentProcess();
-        if SetPriorityClass(process_handle, priority_class) == 0 {
-            Err(format!("Failed to set process priority. Error code: {}", std::io::Error::last_os_error()).into())
-        } else {
-            Ok(())
-        }
-    }
-}

@@ -1,7 +1,6 @@
 use ribir::{prelude::*};
 use crate::updater;
 use log::{info, error};
-use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::runtime::Runtime;
 
@@ -31,28 +30,8 @@ fn app_buttons(download_url: String) -> impl WidgetBuilder {
                         let rt = Runtime::new().unwrap();
                         rt.block_on(async move {
                             match updater::download_update(&download_url_for_spawn).await {
-                                Ok(_) => {
+                                Ok(downloaded_file_path) => {
                                     info!("Update downloaded successfully from UI. Attempting to run new executable.");
-                                    let app_data_dir = match updater::get_app_data_dir() {
-                                        Ok(dir) => dir,
-                                        Err(e) => {
-                                            error!("Failed to get app data dir: {}", e);
-                                            // No UI echo as per user's request
-                                            return;
-                                        }
-                                    };
-                                    let current_exe = match std::env::current_exe() {
-                                        Ok(exe) => exe,
-                                        Err(e) => {
-                                            error!("Failed to get current executable path: {}", e);
-                                            // No UI echo as per user's request
-                                            return;
-                                        }
-                                    };
-                                    let app_name = current_exe.file_name().unwrap().to_str().unwrap();
-                                    let downloaded_file_path: PathBuf = app_data_dir.join(format!("{}_new", app_name));
-
-                                    info!("Attempting to run new executable: {:?}", downloaded_file_path);
                                     match std::process::Command::new(&downloaded_file_path)
                                         .arg("--install-ui")
                                         .spawn() {

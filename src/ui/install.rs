@@ -27,7 +27,7 @@ fn app_buttons() -> impl WidgetBuilder {
                             match installer::install_application().await {
                                 Ok(_) => {
                                     // show_info_dialog("Installation successful! Please restart the application.", window.clone());
-                                    info!("nstallation successful! Please restart the application.");
+                                    info!("Installation successful! Please restart the application.");
                                     std::process::exit(0);
                                 },
                                 Err(e) => {

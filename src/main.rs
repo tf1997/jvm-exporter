@@ -18,6 +18,7 @@ mod metrics {
 
 use clap;
 use log::{info, error, LevelFilter};
+use rand::Rng;
 use crate::config::{fetch_and_merge_config, Config};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
@@ -27,7 +28,6 @@ use dirs;
 use std::sync::{Arc, RwLock};
 use chrono::{Local, Duration, Timelike};
 use tokio::time::{sleep};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tokio::main]
 async fn main() {
@@ -67,7 +67,7 @@ async fn main() {
     init_logger(app_name, Arc::clone(&config));
 
     info!("Using config file at: {:?}", config_path);
-    info!("config.to_str() is: {:?}", config);
+    info!("Using config is: {:?}", config);
 
     let matches = clap::App::new("ferris-watch")
         .version("0.3.6")
@@ -206,9 +206,7 @@ async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>
         let config = Arc::clone(&config_for_daily_update);
         // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
         let now = Local::now();
-
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
-        let random_minute = (nanos % 60) as u32;
+        let random_minute = rand::rng().random_range(0..60);
 
         let mut next_check = now
             .with_hour(2).unwrap()
@@ -226,7 +224,11 @@ async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>
 
         let sleep_duration = next_check.signed_duration_since(now).to_std().unwrap_or_default();
 
-        info!("Next update check scheduled in: {:?}", sleep_duration);
+        info!(
+            "Next update check scheduled at: {} (in {:?})",
+            next_check.format("%Y-%m-%d %H:%M:%S"),
+            sleep_duration
+        );
         sleep(sleep_duration).await;
 
         info!("Performing scheduled update check...");

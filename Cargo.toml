@@ -28,6 +28,7 @@ chrono = "0.4"
 semver = "1.0" # Add semver crate
 ping = "0.5.0"
 lazy_static = "1.4.0"
+rand = "0.9.1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"

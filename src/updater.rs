@@ -1,4 +1,4 @@
-use log::{info};
+use log::{info, error};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -7,14 +7,20 @@ use tokio::fs;
 use std::io::Read;
 use crate::config::Config;
 
-pub async fn check_and_update(config: Arc<RwLock<Config>>) -> Result<Option<String>, Box<dyn Error>> {
+pub async fn check_and_update(config: Arc<RwLock<Config>>) -> Result<Option<PathBuf>, Box<dyn Error>> {
     let update_url_option = check_for_update(config.clone()).await?;
-
     if let Some(update_url) = update_url_option {
         info!("New version available at: {}", update_url);
-        download_update(&update_url).await?;
-        info!("Update downloaded successfully.");
-        Ok(Some(update_url))
+        match download_update(&update_url).await {
+            Ok(downloaded_file_path) => {
+                info!("Update downloaded successfully to: {:?}", downloaded_file_path);
+                return Ok(Some(downloaded_file_path));
+            }
+            Err(e) => {
+                error!("Failed to download update: {}", e);
+                return Err(e);
+            } 
+        }
     } else {
         info!("No update available.");
         Ok(None)

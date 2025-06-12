@@ -93,7 +93,7 @@ async fn main() {
         )
         .arg(
             clap::Arg::new("install")
-                .long("iinstall")
+                .long("install")
                 .help("Install and update the program to auto-start with the system"),
         )
     
@@ -106,9 +106,27 @@ async fn main() {
     let install = matches.is_present("install");
 
     if install {
-        match installer::install_application().await {
+        let result;
+        match updater::check_and_update(config).await {
+            Ok(downloaded_file_path) => {
+                if downloaded_file_path.is_some() {
+                    if let Some(ref path) = downloaded_file_path.as_deref() {
+                        result = installer::install_application_with_path(path).await;
+                    } else {
+                        result = installer::install_application().await;
+                    }
+                    
+                } else {
+                    result = installer::install_application().await;
+                }
+            },
+            Err(e) => {
+                error!("Download failed: {}, Runnig with the normal install node.", e);
+                result = installer::install_application().await;
+            }
+        }
+        match result {
             Ok(_) => {
-                info!("Installation successful! Please restart the application.");
                 std::process::exit(0);
             },
             Err(e) => {
@@ -181,7 +199,7 @@ async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>
                     info!("Scheduled update download completed successfully.");
                     info!("Attempting to run new executable: {:?}", downloaded_file_path);
                     match std::process::Command::new(&downloaded_file_path)
-                        .arg("--install-no-ui")
+                        .arg("--install")
                         .spawn() {
                         Ok(_) => {
                             std::process::exit(0); // Exit the current process after starting the new one

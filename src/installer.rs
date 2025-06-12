@@ -11,10 +11,16 @@ use {
     std::process::{Command, Stdio},
     anyhow::{anyhow, Context, Result},
     log::error,
+    std::os::windows::process::CommandExt,
 };
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {
     let new_exe_path = std::env::current_exe().unwrap();
+    return install_application_with_path(&new_exe_path).await;
+}
+
+pub async fn install_application_with_path(new_exe_path: &Path) -> Result<(), Box<dyn Error>> {
+    
 
     let app_name = env!("CARGO_PKG_NAME");
 
@@ -69,26 +75,19 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         );
         info!("NOTE: This operation requires administrative privileges to set auto-start for all users.");
         info!("Application will start automatically with Windows.");
-
-        // Optionally, run the program immediately after configuring auto-start
-        // This might not be desired for an "installation" flow, as the current app might still be running.
-        // For now, we'll just configure and let the user restart or the system auto-start.
-        info!(
-            "Auto-start configured for Windows (all users) with entry: {} = {}",
-            app_name, target_exe_str
-        );
-        info!("NOTE: This operation requires administrative privileges to set auto-start for all users.");
-        info!("Application will start automatically with Windows.");
-
         // Run the program immediately after configuring auto-start
         info!("Starting application immediately...");
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("") // Title argument, can be empty
-            .arg(&target_exe_str)
-            .arg("--no-ui") // Pass --no-ui to the launched instance
-            .spawn()?;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        match std::process::Command::new(&target_exe_str)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(_) => info!("Application started."),
+            Err(e) => error!("Failed to start application: {}", e),
+        }
         info!("Application started.");
         Ok(())
     }

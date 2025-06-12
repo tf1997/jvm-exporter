@@ -10,7 +10,8 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Pid, RefreshKind, System};
+use std::time::Duration;
+use sysinfo::{CpuRefreshKind, DiskExt, Pid, PidExt, ProcessExt, RefreshKind, System, SystemExt};
 use tokio::process::Command;
 
 pub(crate) async fn handle_metrics(
@@ -107,7 +108,7 @@ async fn update_metrics(
 
         // Use the already initialized 'system' object
         for (pid, process) in system.processes() {
-            let process_name = process.name().to_str().unwrap_or_default().to_string();
+            let process_name = process.name().to_string();
             let ppid = process.parent().unwrap_or(Pid::from_u32(0)).as_u32();
             if system_processes_regex
                 .iter()
@@ -441,20 +442,21 @@ async fn update_process_cpu_memory_metrics(
     processes: &[ProcessInfo],
 ) -> Result<(), Box<dyn std::error::Error>> {
     // No need for System::new_all() or system.refresh_all() here, as it's done in update_metrics
-    tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     let pids: Vec<Pid> = processes
         .iter()
         .filter_map(|p| Pid::from_str(p.pid.as_str()).ok())
         .collect();
-    system.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::Some(&pids), // Refresh all processes
-        true,                                    // Refresh process components
-        sysinfo::ProcessRefreshKind::nothing() // Changed from new() to nothing()
-            .with_cpu()
-            .with_memory()
-            .with_disk_usage(), // Removed .with_io()
-    );
+    pids.iter().for_each(|pid| {
+        system.refresh_process_specifics(
+            *pid,
+            sysinfo::ProcessRefreshKind::new()
+                .with_cpu()
+                .with_disk_usage(),
+        );
+    });
+
     let total_memory_kb = system.total_memory() as f64;
 
     // Pre-process sockets to map PIDs to their associated TCP connections
@@ -527,20 +529,6 @@ async fn update_process_cpu_memory_metrics(
                     .with_label_values(&[container, pid_str, process])
                     .set(up_time_secs);
 
-                let open_file = process_info.open_files().unwrap_or(0) as f64;
-                let open_file_limit = process_info.open_files_limit().unwrap_or(0) as f64;
-                metrics
-                    .process_metrics
-                    .open_file
-                    .with_label_values(&[container, pid_str, process])
-                    .set(open_file);
-
-                metrics
-                    .process_metrics
-                    .open_file_limit
-                    .with_label_values(&[container, pid_str, process])
-                    .set(open_file_limit);
-
                 let mut state_counts: HashMap<String, usize> = HashMap::new();
 
                 for state in TCP_STATES {
@@ -580,9 +568,9 @@ async fn update_system_metrics(
     // system.refresh_memory();
     // Update Memory usage
     system.refresh_specifics(
-        RefreshKind::nothing()
-            .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
-            .with_memory(MemoryRefreshKind::everything()),
+        RefreshKind::new()
+            .with_cpu(CpuRefreshKind::new().with_cpu_usage())
+            .with_memory(),
     );
     metrics
         .system_metrics
@@ -597,7 +585,7 @@ async fn update_system_metrics(
         .set(system.total_memory() as f64);
 
     // Update Disk usage
-    for disk in &Disks::new_with_refreshed_list() {
+    for disk in system.disks() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
         if mount_point.contains("docker")
@@ -624,7 +612,7 @@ async fn update_system_metrics(
     }
 
     // Update System uptime
-    let uptime = System::uptime() as f64; // uptime is in seconds
+    let uptime = system.uptime() as f64; // uptime is in seconds
     metrics
         .system_metrics
         .uptime
@@ -643,30 +631,6 @@ async fn update_system_metrics(
         .swap_usage
         .with_label_values(&["used"])
         .set(system.used_swap() as f64);
-
-    let open_file = system
-        .processes()
-        .iter()
-        .map(|(_, process)| process.open_files().unwrap_or(0) as f64)
-        .sum::<f64>();
-
-    let open_file_limit = system
-        .processes()
-        .iter()
-        .map(|(_, process)| process.open_files_limit().unwrap_or(0) as f64)
-        .sum::<f64>();
-
-    metrics
-        .system_metrics
-        .open_file
-        .with_label_values(&["system"])
-        .set(open_file);
-
-    metrics
-        .system_metrics
-        .open_file_limit
-        .with_label_values(&["system"])
-        .set(open_file_limit);
 
     let mut state_counts: HashMap<String, usize> = HashMap::new();
 

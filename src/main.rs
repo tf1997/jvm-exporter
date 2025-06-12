@@ -5,11 +5,6 @@ mod config;
 mod updater;
 mod installer;
 mod probes;
-mod ui{
-    pub mod home;
-    pub mod update;
-    pub mod install;
-}
 mod metrics {
     pub mod collect;
     pub mod metrics;
@@ -18,7 +13,7 @@ mod metrics {
 
 use clap;
 use log::{info, error, LevelFilter};
-use rand::Rng;
+use getrandom::getrandom;
 use crate::config::{fetch_and_merge_config, Config};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
@@ -70,7 +65,7 @@ async fn main() {
     info!("Using config is: {:?}", config);
 
     let matches = clap::App::new("ferris-watch")
-        .version("0.3.6")
+        .version("0.0.1")
         .author("tf1997")
         .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
         .arg(
@@ -97,19 +92,9 @@ async fn main() {
                 .help("Disable the program from auto-starting with the system"),
         )
         .arg(
-            clap::Arg::new("no_ui")
-                .long("no-ui")
-                .help("Run the program without a UI (for Windows and macOS)"),
-        )
-        .arg(
-            clap::Arg::new("install_ui")
-                .long("install-ui")
-                .help("Run the program with an install UI (for Windows and macOS)"),
-        )
-        .arg(
-            clap::Arg::new("install_no_ui")
-                .long("install-no-ui")
-                .help("Run the program with an installer role"),
+            clap::Arg::new("install")
+                .long("iinstall")
+                .help("Install and update the program to auto-start with the system"),
         )
     
         .get_matches();
@@ -118,21 +103,17 @@ async fn main() {
     let full_path = matches.is_present("full_path");
     let auto_start = matches.is_present("auto_start");
     let should_disable_auto_start = matches.is_present("disable_auto_start");
-    let no_ui = matches.is_present("no_ui");
-    let install_ui = matches.is_present("install_ui");
-    let install_no_ui = matches.is_present("install_no_ui");
+    let install = matches.is_present("install");
 
-    if install_no_ui {
+    if install {
         match installer::install_application().await {
             Ok(_) => {
-                // show_info_dialog("Installation successful! Please restart the application.", window.clone());
                 info!("Installation successful! Please restart the application.");
                 std::process::exit(0);
             },
             Err(e) => {
                 error!("Installation failed: {}", e);
                 std::process::exit(0);
-                // show_info_dialog(format!("Installation failed: {}. Please run as administrator.", e), window.clone());
             }
         }
     }
@@ -153,51 +134,11 @@ async fn main() {
         }
     }
     
-
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        if install_ui {
-            info!("Running in install UI mode.");
-            crate::ui::install::app();
-            return; // Exit main after showing install UI
-        }
-        if !no_ui {
-            info!("Checking for updates on startup...");
-            let config_for_update_check = Arc::clone(&config);
-            match updater::check_for_update(config_for_update_check).await {
-                Ok(Some(download_url)) => {
-                    info!("Update available. Navigating to update page.");
-                    crate::ui::update::app(download_url);
-                    return; // Exit main after showing update UI
-                },
-                Ok(None) => {
-                    info!("No update available on startup.");
-                },
-                Err(e) => {
-                    error!("Failed to check for updates on startup: {}", e);
-                }
-            }
-        }
-
-        if auto_start || should_disable_auto_start || no_ui {
-            // Spawn a task for daily update checks
-            let config_for_daily_update = Arc::clone(&config);
-            tokio::spawn(schedule_daily_update_check(config_for_daily_update));
-            monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, Arc::clone(&config)).await;
-        } else {
-            // If no specific flags, launch UI which will then handle starting the monitor
-            crate::ui::home::app(Arc::clone(&config));
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        info!("Starting ferris-watch directly.");
-        // Spawn a task for daily update checks
-        let config_for_daily_update = Arc::clone(&config);
-        tokio::spawn(schedule_daily_update_check(config_for_daily_update));
-        monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, Arc::clone(&config)).await;
-    }
+    info!("Starting ferris-watch directly.");
+    let config_for_daily_update = Arc::clone(&config);
+    tokio::spawn(schedule_daily_update_check(config_for_daily_update));
+    monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, Arc::clone(&config)).await;
+    
 }
 
 async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>>) {
@@ -206,8 +147,9 @@ async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>
         let config = Arc::clone(&config_for_daily_update);
         // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
         let now = Local::now();
-        let random_minute = rand::rng().random_range(0..60);
-
+        let mut buf = [0u8; 1];
+        getrandom(&mut buf).unwrap();
+        let random_minute = (buf[0] % 60) as u32;
         let mut next_check = now
             .with_hour(2).unwrap()
             .with_minute(random_minute).unwrap()

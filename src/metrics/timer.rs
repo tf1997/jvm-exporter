@@ -1,7 +1,7 @@
 use crate::metrics::collect::Metrics;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{CpuRefreshKind, Networks, System};
+use sysinfo::{CpuExt, CpuRefreshKind, NetworkExt, System, SystemExt};
 use tokio::time::interval;
 
 pub fn run(metrics: Arc<Metrics>) {
@@ -17,10 +17,15 @@ pub fn run(metrics: Arc<Metrics>) {
                 loop {
                     tokio::select! {
                         _ = network_task_interval.tick() => {
-                            let mut networks = Networks::new_with_refreshed_list();
+                            let mut system = System::new_with_specifics(
+                                sysinfo::RefreshKind::new()
+                                .with_networks()
+                            ); 
+                        
                             tokio::time::sleep(Duration::from_millis(1000)).await;
-                            networks.refresh(true);
-                            for (interface_name, data) in &networks {
+                            system.refresh_networks();          
+                            for (interface_name, data) in system.networks() {
+                                
                                 let received = data.received() as f64;
                                 let transmitted = data.transmitted() as f64;
                                 metrics
@@ -38,11 +43,11 @@ pub fn run(metrics: Arc<Metrics>) {
                         },
                         _ = cpu_task_interval.tick() => {
                             let mut system = System::new_with_specifics(
-                                sysinfo::RefreshKind::nothing()
-                                .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
+                                sysinfo::RefreshKind::new()
+                                .with_cpu(CpuRefreshKind::new().with_cpu_usage())
                             );        
-                            tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
-                            system.refresh_cpu_usage();
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            system.refresh_cpu_specifics(CpuRefreshKind::new().with_cpu_usage());
                             // Update CPU usage
                             for (i, processor) in system.cpus().iter().enumerate() {
                                 let cpu_label = format!("cpu_{}", i);

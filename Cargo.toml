@@ -6,34 +6,33 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-warp = "0.3"
-prometheus = "0.13.4"
-log = "0.4.22"
-env_logger = "0.10"
-futures = "0.3"
-clap = "3.0"
-sysinfo = { version = "0.35.2", features = ["default", "disk", "network"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-ureq = "2.0"
-regex = "1.5"
-netstat-esr = "0.8.1"
-dirs = "5.0.1"
-log4rs = "1.2.0"
-ribir = { version = "0.3.0"} # Default feature for Ribir
-winit = "0.29" # Add winit as a direct dependency
-chrono = "0.4"
-semver = "1.0" # Add semver crate
-ping = "0.5.0"
-lazy_static = "1.4.0"
-rand = "0.9.1"
+tokio = { version = "=1.45.1", features = ["full"] }
+warp = "=0.3.7"
+prometheus = "=0.13.4"
+log = "=0.4.22"
+env_logger = "=0.11.8"
+futures = "=0.3.31"
+clap = "=3.0.14"
+sysinfo = { version = "=0.27.8", features = ["default"] }
+serde = { version = "=1.0.219", features = ["derive"] }
+serde_json = "=1.0.140"
+serde_yaml = "=0.9.34"
+ureq = "=2.0.2"
+regex = "=1.5.6"
+netstat-esr = "=0.8.1"
+dirs = "=5.0.1"
+log4rs = "=1.2.0"
+winit = "=0.29.15" # Add winit as a direct dependency
+chrono = "=0.4.41"
+semver = "=1.0.26" # Add semver crate
+ping = "=0.5.0"
+lazy_static = "=1.4.0"
+getrandom = "=0.2.7"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55.0"
-winapi = { version = "0.3.9", features = ["processthreadsapi", "winbase"] }
-anyhow = "1.0"
+winreg = "=0.50.0"
+winapi = { version = "=0.3.9", features = ["processthreadsapi", "winbase"] }
+anyhow = "=1.0.98"
 
 
 [profile.release]

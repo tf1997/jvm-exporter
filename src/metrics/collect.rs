@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{CpuRefreshKind, DiskExt, Pid, PidExt, ProcessExt, RefreshKind, System, SystemExt};
+use sysinfo::{CpuRefreshKind, DiskExt, Pid, PidExt, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
 use tokio::process::Command;
 
 pub(crate) async fn handle_metrics(
@@ -96,7 +96,11 @@ async fn update_metrics(
     }
     all_processes.extend(filtered_container_processes);
 
-    let mut system = System::new_all();
+    let mut system = System::new_with_specifics(
+        RefreshKind::new()
+        .with_processes(ProcessRefreshKind::new().with_cpu())
+        .with_cpu(CpuRefreshKind::new().with_cpu_usage())
+        .with_memory());
 
     // 3. Collect System Processes from Config
     let config = metrics.config.read().unwrap().clone();

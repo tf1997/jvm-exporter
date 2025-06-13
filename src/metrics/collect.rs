@@ -100,7 +100,9 @@ async fn update_metrics(
         RefreshKind::new()
         .with_processes(ProcessRefreshKind::new().with_cpu())
         .with_cpu(CpuRefreshKind::new().with_cpu_usage())
-        .with_memory());
+        .with_memory()
+        .with_disks()
+        .with_disks_list());
 
     // 3. Collect System Processes from Config
     let config = metrics.config.read().unwrap().clone();
@@ -490,7 +492,7 @@ async fn update_process_cpu_memory_metrics(
         }
 
         if let Ok(pid_u32) = pid_str.parse::<u32>() {
-            if let Some(process_info) = system.process(sysinfo::Pid::from(pid_u32 as usize)) {
+            if let Some(process_info) = system.process(sysinfo::Pid::from_u32(pid_u32)) {
                 // Update CPU usage
                 metrics
                     .process_metrics
@@ -574,7 +576,8 @@ async fn update_system_metrics(
     system.refresh_specifics(
         RefreshKind::new()
             .with_cpu(CpuRefreshKind::new().with_cpu_usage())
-            .with_memory(),
+            .with_memory()
+            .with_disks()
     );
     metrics
         .system_metrics

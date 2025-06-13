@@ -20,6 +20,7 @@ pub fn run(metrics: Arc<Metrics>) {
                             let mut system = System::new_with_specifics(
                                 sysinfo::RefreshKind::new()
                                 .with_networks()
+                                .with_networks_list()
                             ); 
                         
                             tokio::time::sleep(Duration::from_millis(1000)).await;

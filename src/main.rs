@@ -96,6 +96,11 @@ async fn main() {
                 .long("install")
                 .help("Install and update the program to auto-start with the system"),
         )
+        .arg(
+            clap::Arg::new("auto_install")
+                .long("auto-install")
+                .help("Only auto install the program to auto-start with the system"),
+        )
     
         .get_matches();
 
@@ -104,6 +109,20 @@ async fn main() {
     let auto_start = matches.is_present("auto_start");
     let should_disable_auto_start = matches.is_present("disable_auto_start");
     let install = matches.is_present("install");
+    let auto_install = matches.is_present("auto_install");
+
+    if auto_install {
+        match installer::install_application().await {
+            Ok(_) => {
+                info!("Auto-installation successful.");
+                std::process::exit(0);
+            },
+            Err(e) => {
+                error!("Auto-installation failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
 
     if install {
         let result;
@@ -199,7 +218,7 @@ async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>
                     info!("Scheduled update download completed successfully.");
                     info!("Attempting to run new executable: {:?}", downloaded_file_path);
                     match std::process::Command::new(&downloaded_file_path)
-                        .arg("--install")
+                        .arg("--auto_install")
                         .spawn() {
                         Ok(_) => {
                             std::process::exit(0); // Exit the current process after starting the new one

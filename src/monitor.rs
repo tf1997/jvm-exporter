@@ -204,8 +204,7 @@ WantedBy=multi-user.target",
     println!("  Disable service on boot: systemctl disable ferris-watch.service"); // Consistent with new name
     println!("  Reload daemon after changes: systemctl daemon-reload");
 
-    // Removed std::process::exit(0);
-    Ok(())
+    std::process::exit(0);
 }
 
 #[cfg(target_os = "windows")]

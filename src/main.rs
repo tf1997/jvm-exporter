@@ -108,6 +108,11 @@ async fn main() {
                 .long("install-no-ui")
                 .help("Run the program with an installer role"),
         )
+        .arg(
+            clap::Arg::new("auto_install")
+                .long("auto-install")
+                .help("Run the program with an installer role"),
+        )
     
         .get_matches();
 
@@ -118,8 +123,9 @@ async fn main() {
     let no_ui = matches.is_present("no_ui");
     let install_ui = matches.is_present("install_ui");
     let install_no_ui = matches.is_present("install_no_ui");
+    let auto_install = matches.is_present("auto_install");
 
-    if install_no_ui {
+    if install_no_ui || auto_install {
         match installer::install_application().await {
             Ok(_) => {
                 // show_info_dialog("Installation successful! Please restart the application.", window.clone());

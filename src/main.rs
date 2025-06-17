@@ -39,7 +39,7 @@ async fn main() {
             configuration_service_url: None,
             system_processes: None,
             detect_docker_processes: Some(false),
-            detect_java_processes: Some(true),
+            detect_java_processes: Some(false),
             update_service_url: None
         }
     });

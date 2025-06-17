@@ -10,7 +10,7 @@ use {
     winreg::RegKey,
     std::process::{Command, Stdio},
     anyhow::{anyhow, Context, Result},
-    log::error,
+    log::{error, warn},
 };
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {
@@ -47,11 +47,32 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         info!("new_exe_path: {}", new_exe_path.display());
         info!("target_exe_path: {}", target_exe_path.display());
         kill_process_on_port(29090)?;
-        fs::copy(new_exe_path, &target_exe_path)?;
-        info!(
-            "New executable copied to secure location: {}",
-            target_exe_path.display()
-        );
+
+        let max_retries = 5;
+        let retry_delay = std::time::Duration::from_millis(500);
+        for attempt in 0..max_retries {
+            match fs::copy(new_exe_path, &target_exe_path) {
+                Ok(_) => {
+                    info!("New executable copied to secure location: {}", target_exe_path.display());
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    warn!(
+                        "Failed to copy new executable (attempt {}): {}. Retrying in {:?}...",
+                        attempt + 1,
+                        e,
+                        retry_delay
+                    );
+                    tokio::time::sleep(retry_delay).await;
+                }
+                Err(e) => {
+                    error!("Failed to copy new executable: {}", e);
+                    info!("e.kind:{}", e.kind());
+                    return Err(Box::new(e));
+                }
+            }
+        }
+
 
         let target_exe_str = target_exe_path
             .to_str()
@@ -63,12 +84,6 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         let (key, _disp) = hklm.create_subkey(&path)?;
 
         key.set_value(app_name, &format!("\"{}\" --no-ui", target_exe_str))?;
-        info!(
-            "Auto-start configured for Windows (all users) with entry: {} = {}",
-            app_name, target_exe_str
-        );
-        info!("NOTE: This operation requires administrative privileges to set auto-start for all users.");
-        info!("Application will start automatically with Windows.");
 
         // Optionally, run the program immediately after configuring auto-start
         // This might not be desired for an "installation" flow, as the current app might still be running.

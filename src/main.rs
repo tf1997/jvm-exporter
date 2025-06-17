@@ -137,15 +137,15 @@ async fn main() {
     #[cfg(target_os = "windows")]
     {
         use winapi::um::processthreadsapi::{GetCurrentProcess, SetPriorityClass};
-        use winapi::um::winbase::{ABOVE_NORMAL_PRIORITY_CLASS};
+        use winapi::um::winbase::{BELOW_NORMAL_PRIORITY_CLASS};
         unsafe {
             let process_handle = GetCurrentProcess();
-            let result = SetPriorityClass(process_handle, ABOVE_NORMAL_PRIORITY_CLASS);
+            let result = SetPriorityClass(process_handle, BELOW_NORMAL_PRIORITY_CLASS);
 
             if result != 0 {
-                info!("set process priority to ABOVE_NORMAL_PRIORITY_CLASS successfully.");
+                info!("set process priority to BELOW_NORMAL_PRIORITY_CLASS successfully.");
             } else {
-                error!("Failed to set process priority to ABOVE_NORMAL_PRIORITY_CLASS. Error code: {}", std::io::Error::last_os_error());
+                error!("Failed to set process priority to BELOW_NORMAL_PRIORITY_CLASS. Error code: {}", std::io::Error::last_os_error());
             }
         }
     }

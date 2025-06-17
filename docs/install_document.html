@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ferris-watch Installation Guide</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif; /* Fallback to system font */
+            line-height: 1.8;
+            margin: 0;
+            background: linear-gradient(135deg, #ece9e6, #ffffff);
+            color: #333;
+            padding: 40px 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #ffffff;
+            padding: 40px 50px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 1s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            font-size: 2.8em;
+            margin-bottom: 30px;
+            position: relative;
+            padding-bottom: 10px;
+        }
+        h1::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: 0;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 4px;
+            background-color: #3498db;
+            border-radius: 2px;
+        }
+        h2 {
+            color: #34495e;
+            font-size: 2em;
+            margin-top: 40px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        h3 {
+            color: #3498db;
+            font-size: 1.5em;
+            margin-top: 30px;
+        }
+        code {
+            background-color: #e9e9e9;
+            color: #333; /* Keep text color for readability */
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: Arial, sans-serif; /* Revert to system font */
+            font-size: 0.95em;
+        }
+        pre {
+            background-color: #e9e9e9;
+            color: #333; /* Keep text color for readability */
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: Arial, sans-serif; /* Revert to system font */
+            font-size: 0.9em;
+            box-shadow: none; /* Remove box shadow */
+        }
+        .note {
+            background-color: #d4edda;
+            border-left: 6px solid #28a745;
+            padding: 15px 20px;
+            margin: 25px 0;
+            border-radius: 8px;
+            color: #155724;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+        ul, ol {
+            margin-left: 25px;
+            padding-left: 0;
+        }
+        li {
+            margin-bottom: 10px;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        a:hover {
+            color: #2980b9;
+            text-decoration: underline;
+        }
+        p {
+            margin-bottom: 15px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 60px; /* Increased margin for separation */
+            padding: 25px 0; /* More padding for a spacious feel */
+            border-top: 1px solid #dcdcdc; /* Slightly darker, subtle border */
+            font-size: 0.9em; /* Slightly larger font */
+            color: #666; /* Softer text color */
+            background-color: #f5f5f5; /* A very light grey background */
+            border-radius: 0 0 12px 12px; /* Keep matching container border-radius */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); /* Subtle inner shadow */
+        }
+        .footer p {
+            margin: 0;
+            font-weight: 500; /* Medium font weight for emphasis */
+            color: #444; /* Darker text for better readability */
+            letter-spacing: 0.5px; /* Slight letter spacing */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ferris-watch Online Installation Guide</h1>
+        <p>This document provides instructions for installing the ferris-watch application on Windows, macOS, and Linux systems. ferris-watch is designed to collect and expose JVM metrics.</p>
+
+        <div class="note">
+            <strong>Important:</strong> This application requires administrative privileges for installation to ensure proper system integration and auto-start functionality.
+        </div>
+
+        <h2>System Requirements</h2>
+        <ul>
+            <li><strong>Operating System:</strong> Windows 10/11, macOS, or Linux (with systemd support recommended).</li>
+            <li><strong>Java Development Kit (JDK):</strong> A compatible JDK (version 8 or higher) must be installed and configured on your system. Ensure the <code>JAVA_HOME</code> environment variable is set correctly if you are on macOS/Linux and wish to include it in the service configuration.</li>
+            <li><strong>Network:</strong> Internet access is required for initial download and automatic updates.</li>
+        </ul>
+
+        <h2>Installation Steps</h2>
+
+        <h3>1. Download the Executable</h3>
+        <p>Download the latest version of the JVM Exporter executable for your operating system from the official release page or the provided download link.</p>
+        <p>Example download links (replace with actual links):</p>
+        <ul>
+            <li><a href="YOUR_WINDOWS_DOWNLOAD_LINK_HERE">ferris-watch for Windows (.exe)</a></li>
+            <li><a href="YOUR_MACOS_DOWNLOAD_LINK_HERE">ferris-watch for macOS</a></li>
+            <li><a href="YOUR_LINUX_DOWNLOAD_LINK_HERE">ferris-watch for Linux</a></li>
+        </ul>
+
+        <h3>2. Install the Application</h3>
+
+        <h4>For Windows Users:</h4>
+        <ol>
+            <li>Locate the downloaded <code>install.bat</code> file.</li>
+            <li><strong>Run the installer:</strong> Double-click on the <code>install.bat</code> file to execute it.</li>
+            <li>The ferris-watch program will automatically handle the installation, including setting itself up for auto-start and checking for updates.</li>
+            <li>A command prompt window may briefly appear during the installation process.</li>
+            <li>Once the installation is complete, the ferris-watch application should be running in the background.</li>
+        </ol>
+
+        <h4>For macOS and Linux Users:</h4>
+        <ol>
+            <li>Locate the downloaded executable file (e.g., <code>ferris-watch</code>).</li>
+            <li>Open a terminal.</li>
+            <li>Navigate to the directory where you downloaded the executable.</li>
+            <li>Make the executable runnable (if necessary):
+                <pre><code>chmod +x ferris-watch</code></pre>
+            </li>
+            <li><strong>Run the application with the auto-start flag:</strong>
+                <pre><code>./ferris-watch --auto-start</code></pre>
+                <p>This command will start the ferris-watch application, configure it for auto-start, and enable automatic update checks.</p>
+            </li>
+            <li>Once executed, the ferris-watch application should be running and configured to start automatically with your system.</li>
+        </ol>
+
+        <h2>Verification</h2>
+        <p>To verify that ferris-watch is running correctly:</p>
+        <ul>
+            <li><strong>For Windows:</strong>
+                <ul>
+                    <li>Open Task Manager and look for <code>ferris-watch.exe</code> in the "Details" tab.</li>
+                    <li>Check if the application is listening on its default port (e.g., <code>29090</code>) by opening a web browser and navigating to <code>http://localhost:29090/metrics</code>. You should see Prometheus metrics output.</li>
+                </ul>
+            </li>
+            <li><strong>For macOS/Linux:</strong>
+                <ul>
+                    <li>Check the status of the systemd service:
+                        <pre><code>sudo systemctl status ferris-watch.service</code></pre>
+                        <p>It should show "active (running)".</p>
+                    </li>
+                    <li>Check if the application is listening on its default port (e.g., <code>29090</code>) by opening a web browser and navigating to <code>http://localhost:29090/metrics</code>. You should see Prometheus metrics output.</li>
+                </ul>
+            </li>
+        </ul>
+
+        <h2>Updating the Application</h2>
+        <p>The ferris-watch application includes an automatic update mechanism:</p>
+        <ul>
+            <li>The application periodically checks for new versions from a configured update service.</li>
+            <li>If a new version is available, it will be downloaded to a temporary location.</li>
+            <li>The application will then attempt to replace the running executable with the new version and restart itself. In some cases, manual intervention (e.g., restarting the application or replacing the executable) might be required if the automated process cannot complete due to permissions or file locks.</li>
+        </ul>
+
+        <h2>Troubleshooting</h2>
+        <ul>
+            <li><strong>"Access Denied" or Permissions Errors:</strong> Ensure you are running the installer with administrative privileges (Right-click "Run as administrator" on Windows, or use <code>sudo</code> on macOS/Linux).</li>
+            <li><strong>Application Not Starting:</strong>
+                <ul>
+                    <li>Check system logs for errors (Event Viewer on Windows, <code>journalctl -u ferris-watch.service</code> on Linux).</li>
+                    <li>Verify that your JDK is correctly installed and <code>JAVA_HOME</code> is set (if applicable).</li>
+                </ul>
+            </li>
+            <li><strong>Port 29090 in Use:</strong> If another application is using port 29090, the installer on Windows will attempt to kill it. On other systems, you might need to manually stop the conflicting process or configure ferris-watch to use a different port (refer to configuration documentation).</li>
+        </ul>
+
+        <p>For further assistance, please refer to the project's GitHub repository or contact support.</p>
+        <div class="footer">
+            <p>Supported by Hirain DT Team</p>
+        </div>
+    </div>
+</body>
+</html>

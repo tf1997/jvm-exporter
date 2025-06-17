@@ -18,7 +18,6 @@ mod metrics {
 
 use clap;
 use log::{info, error, LevelFilter};
-use rand::Rng;
 use crate::config::{fetch_and_merge_config, Config};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
@@ -26,8 +25,6 @@ use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
 use dirs;
 use std::sync::{Arc, RwLock};
-use chrono::{Local, Duration, Timelike};
-use tokio::time::{sleep};
 
 #[tokio::main]
 async fn main() {
@@ -182,7 +179,7 @@ async fn main() {
         if auto_start || should_disable_auto_start || no_ui {
             // Spawn a task for daily update checks
             let config_for_daily_update = Arc::clone(&config);
-            tokio::spawn(schedule_daily_update_check(config_for_daily_update));
+            tokio::spawn(updater::schedule_daily_update_check(config_for_daily_update));
             monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, Arc::clone(&config)).await;
         } else {
             // If no specific flags, launch UI which will then handle starting the monitor
@@ -195,69 +192,11 @@ async fn main() {
         info!("Starting ferris-watch directly.");
         // Spawn a task for daily update checks
         let config_for_daily_update = Arc::clone(&config);
-        tokio::spawn(schedule_daily_update_check(config_for_daily_update));
+        tokio::spawn(updater::schedule_daily_update_check(config_for_daily_update));
         monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, Arc::clone(&config)).await;
     }
 }
 
-async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>>) {
-    info!("Scheduled update check task started.");
-    loop {
-        let config = Arc::clone(&config_for_daily_update);
-        // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
-        let now = Local::now();
-        let random_minute = rand::rng().random_range(0..60);
-
-        let mut next_check = now
-            .with_hour(2).unwrap()
-            .with_minute(random_minute).unwrap()
-            .with_second(0).unwrap()
-            .with_nanosecond(0).unwrap();
-
-        if next_check <= now {
-            next_check = (now + Duration::days(1))
-                .with_hour(2).unwrap()
-                .with_minute(random_minute).unwrap()
-                .with_second(0).unwrap()
-                .with_nanosecond(0).unwrap();
-        }
-
-        let sleep_duration = next_check.signed_duration_since(now).to_std().unwrap_or_default();
-
-        info!(
-            "Next update check scheduled at: {} (in {:?})",
-            next_check.format("%Y-%m-%d %H:%M:%S"),
-            sleep_duration
-        );
-        sleep(sleep_duration).await;
-
-        info!("Performing scheduled update check...");
-        if let Some(download_url) = updater::check_for_update(config).await.unwrap_or(None) {
-            info!("New version available! Downloading update...");
-            match updater::download_update(&download_url).await {
-                Ok(downloaded_file_path) => {
-                    info!("Scheduled update download completed successfully.");
-                    info!("Attempting to run new executable: {:?}", downloaded_file_path);
-                    match std::process::Command::new(&downloaded_file_path)
-                        .arg("--install-no-ui")
-                        .spawn() {
-                        Ok(_) => {
-                            std::process::exit(0); // Exit the current process after starting the new one
-                        },
-                        Err(e) => {
-                            error!("Failed to start new executable: {}", e);
-                            // No UI echo as per user's request
-                        }
-                    }
-                },
-                Err(e) => {
-                    error!("Scheduled update download failed: {}", e);
-                }
-            }
-
-        }
-    }
-}
 
 fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
     let log_dir = std::env::temp_dir()

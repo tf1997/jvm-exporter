@@ -1,26 +1,43 @@
-use log::{info};
+use crate::config::Config;
+use chrono::{Duration, Local, Timelike};
+use dirs;
+use getrandom::getrandom;
+use log::{error, info};
 use std::error::Error;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use dirs;
 use tokio::fs;
-use std::io::Read;
-use crate::config::Config;
+use tokio::time::sleep;
 
-pub async fn check_and_update(config: Arc<RwLock<Config>>) -> Result<Option<String>, Box<dyn Error>> {
+pub async fn check_and_update(
+    config: Arc<RwLock<Config>>,
+) -> Result<Option<PathBuf>, Box<dyn Error + Send + Sync>> {
     let update_url_option = check_for_update(config.clone()).await?;
-
     if let Some(update_url) = update_url_option {
         info!("New version available at: {}", update_url);
-        download_update(&update_url).await?;
-        info!("Update downloaded successfully.");
-        Ok(Some(update_url))
+        match download_update(&update_url).await {
+            Ok(downloaded_file_path) => {
+                info!(
+                    "Update downloaded successfully to: {:?}",
+                    downloaded_file_path
+                );
+                return Ok(Some(downloaded_file_path));
+            }
+            Err(e) => {
+                error!("Failed to download update: {}", e);
+                return Err(e);
+            }
+        }
     } else {
         info!("No update available.");
         Ok(None)
     }
 }
-pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<String>, Box<dyn Error>> {
+pub async fn check_for_update(
+    config: Arc<RwLock<Config>>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
     info!("Checking for updates...");
 
     let update_service_url = config
@@ -49,7 +66,10 @@ pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<Stri
         if cfg!(target_os = "windows") {
             app_name.push_str(".exe");
         }
-        let download_file_url = format!("{}/release/{}/{}/{}", update_service_url, latest_version_str, platform_string, app_name);
+        let download_file_url = format!(
+            "{}/release/{}/{}/{}",
+            update_service_url, latest_version_str, platform_string, app_name
+        );
         info!("Constructed download URL: {}", download_file_url);
         Ok(Some(download_file_url))
     } else {
@@ -58,7 +78,7 @@ pub async fn check_for_update(config: Arc<RwLock<Config>>) -> Result<Option<Stri
     }
 }
 
-pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Error>> {
+pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     info!("Downloading update from: {}", download_url);
     let response = ureq::get(download_url).call()?;
     if response.status() != 200 {
@@ -77,7 +97,6 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
             app_data_dir.join(format!("{}_new", app_name)) // Save with a temporary name
         }
     };
-    
 
     info!("Saving new executable to: {:?}", downloaded_file_path);
     fs::write(&downloaded_file_path, bytes).await?;
@@ -88,7 +107,7 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
     Ok(downloaded_file_path)
 }
 
-async fn fetch_latest_version(url: &str) -> Result<String, Box<dyn Error>> {
+async fn fetch_latest_version(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let response = ureq::get(url).call()?;
     if response.status() == 200 {
         let json_response: serde_json::Value = serde_json::from_str(&response.into_string()?)?;
@@ -103,12 +122,126 @@ async fn fetch_latest_version(url: &str) -> Result<String, Box<dyn Error>> {
     }
 }
 
+pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Config>>) {
+    info!("Scheduled update check task started.");
+    loop {
+        let config = Arc::clone(&config_for_daily_update);
+        // Calculate time until next midnight (or a specific hour, e.g., 3 AM)
+        let now = Local::now();
+        let random_minute_or_seconds = load_or_generate_today_minute();
+        let mut next_check = now
+            .with_hour(2)
+            .unwrap()
+            .with_minute(random_minute_or_seconds)
+            .unwrap()
+            .with_second(random_minute_or_seconds)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();
+
+        if next_check <= now {
+            let _ = load_or_generate_today_minute();
+            next_check = (now + Duration::days(1))
+                .with_hour(2)
+                .unwrap()
+                .with_minute(random_minute_or_seconds)
+                .unwrap()
+                .with_second(random_minute_or_seconds)
+                .unwrap()
+                .with_nanosecond(0)
+                .unwrap();
+        }
+
+        let sleep_duration = next_check
+            .signed_duration_since(now)
+            .to_std()
+            .unwrap_or_default();
+
+        info!(
+            "Next update check scheduled at: {} (in {:?})",
+            next_check.format("%Y-%m-%d %H:%M:%S"),
+            sleep_duration
+        );
+        sleep(sleep_duration).await;
+
+        info!("Performing scheduled update check...");
+        if let Some(download_url) = check_for_update(config).await.unwrap_or(None) {
+            info!("New version available! Downloading update...");
+            match download_update(&download_url).await {
+                Ok(downloaded_file_path) => {
+                    info!("Scheduled update download completed successfully.");
+                    info!(
+                        "Attempting to run new executable: {:?}",
+                        downloaded_file_path
+                    );
+                    match std::process::Command::new(&downloaded_file_path)
+                        .arg("--auto_install")
+                        .spawn()
+                    {
+                        Ok(_) => {
+                            std::process::exit(0); // Exit the current process after starting the new one
+                        }
+                        Err(e) => {
+                            error!("Failed to start new executable: {}", e);
+                            // No UI echo as per user's request
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Scheduled update download failed: {}", e);
+                }
+            }
+        }
+    }
+}
+
+fn get_update_minute_file() -> PathBuf {
+    let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push(".ferris-watch-update-minute");
+    path
+}
+
+fn load_or_generate_today_minute() -> u32 {
+    let file = get_update_minute_file();
+    let today = Local::now().format("%Y-%m-%d").to_string();
+
+    // 尝试读取
+    if let Ok(mut f) = std::fs::File::open(&file) {
+        let mut content = String::new();
+        if f.read_to_string(&mut content).is_ok() {
+            let parts: Vec<&str> = content.trim().split(',').collect();
+            if parts.len() == 2 && parts[0] == today {
+                if let Ok(minute) = parts[1].parse::<u32>() {
+                    return minute;
+                }
+            }
+        }
+    }
+
+    // 生成新的
+    let mut buf = [0u8; 1];
+    getrandom(&mut buf).unwrap();
+    let minute = (buf[0] % 60) as u32;
+
+    // 写入
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&file)
+    {
+        let _ = write!(f, "{},{}", today, minute);
+    }
+
+    minute
+}
+
 // Function to get the application's data directory
-pub fn get_app_data_dir() -> Result<PathBuf, Box<dyn Error>> {
+pub fn get_app_data_dir() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     let data_dir = dirs::data_dir()
         .ok_or("Could not find data directory")?
         .join(env!("CARGO_PKG_NAME")); // Use package name for app-specific directory
-    
+
     // Ensure the directory exists
     std::fs::create_dir_all(&data_dir)?;
     Ok(data_dir)
@@ -134,8 +267,7 @@ fn get_platform_string() -> String {
         "arm"
     } else if cfg!(target_arch = "aarch64") {
         "aarch64"
-    }
-    else {
+    } else {
         "unknown"
     };
 

@@ -175,7 +175,7 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                         downloaded_file_path
                     );
                     match std::process::Command::new(&downloaded_file_path)
-                        .arg("--auto_install")
+                        .arg("--auto-install")
                         .spawn()
                     {
                         Ok(_) => {
@@ -205,7 +205,6 @@ fn load_or_generate_today_minute() -> u32 {
     let file = get_update_minute_file();
     let today = Local::now().format("%Y-%m-%d").to_string();
 
-    // 尝试读取
     if let Ok(mut f) = std::fs::File::open(&file) {
         let mut content = String::new();
         if f.read_to_string(&mut content).is_ok() {
@@ -218,12 +217,10 @@ fn load_or_generate_today_minute() -> u32 {
         }
     }
 
-    // 生成新的
     let mut buf = [0u8; 1];
     getrandom(&mut buf).unwrap();
     let minute = (buf[0] % 60) as u32;
 
-    // 写入
     if let Ok(mut f) = OpenOptions::new()
         .create(true)
         .write(true)

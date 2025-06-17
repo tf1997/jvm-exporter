@@ -175,7 +175,7 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                         downloaded_file_path
                     );
                     match std::process::Command::new(&downloaded_file_path)
-                        .arg("--auto_install")
+                        .arg("install-no-ui")
                         .spawn()
                     {
                         Ok(_) => {

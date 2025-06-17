@@ -67,7 +67,7 @@ async fn main() {
     info!("Using config is: {:?}", config);
 
     let matches = clap::App::new("ferris-watch")
-        .version("0.3.6")
+        .version("0.0.1")
         .author("tf1997")
         .about("Monitor the JVM, cpu and memory metrics of process and the system cpu, disk, network and memory metrics.")
         .arg(

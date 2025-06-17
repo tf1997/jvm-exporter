@@ -10,6 +10,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::fs;
 use tokio::time::sleep;
+#[cfg(target_os = "windows")]
+use {
+    std::mem,
+    windows_sys::Win32::System::SystemInformation::{GetVersionExW, OSVERSIONINFOW},
+};
 
 pub async fn check_and_update(
     config: Arc<RwLock<Config>>,
@@ -267,6 +272,58 @@ fn get_platform_string() -> String {
     } else {
         "unknown"
     };
+    #[cfg(target_os = "windows")]
+    {
+        let os_version = get_os_version();
+        if os_version == "unknown" {
+            return format!("{}-{}", os, arch);
+        } else {
+            return format!("{}{}-{}", os, os_version, arch);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        format!("{}-{}", os, arch)
+    }
+}
+#[cfg(target_os = "windows")]
+fn get_os_version() -> String {
+    is_windows7_or_lower()
+        .map(|is_windows7| {
+            if is_windows7 {
+                "7".to_string()
+            } else {
+                "10".to_string()
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
 
-    format!("{}-{}", os, arch)
+#[cfg(target_os = "windows")]
+pub fn is_windows7_or_lower() -> Option<bool> {
+    // The OSVERSIONINFOW struct must be properly initialized, especially the `dwOSVersionInfoSize` field.
+    let mut version_info: OSVERSIONINFOW = unsafe { mem::zeroed() };
+    version_info.dwOSVersionInfoSize = mem::size_of::<OSVERSIONINFOW>() as u32;
+
+    // Call the Windows API function `GetVersionExW`.
+    // This is in an `unsafe` block because it's a Foreign Function Interface (FFI) call.
+    if unsafe { GetVersionExW(&mut version_info) } == 0 {
+        // The API call failed.
+        return None;
+    }
+
+    let major = version_info.dwMajorVersion;
+    let minor = version_info.dwMinorVersion;
+
+    // --- Version Number Logic ---
+    // Windows 7:           Major = 6, Minor = 1
+    // Windows 8:           Major = 6, Minor = 2
+    // Windows 8.1:         Major = 6, Minor = 3
+    // Windows 10/11:       Major = 10, Minor = 0
+    //
+    // Even without a manifest, on a Win 8+ system, `GetVersionExW` will return at least 6.2.
+    // So, we can safely check if the version is less than or equal to 6.1.
+    // (major < 6) covers systems older than Vista (e.g., XP).
+    // (major == 6 && minor <= 1) covers Windows 7 (6.1) and Vista (6.0).
+    Some(major < 6 || (major == 6 && minor <= 1))
 }

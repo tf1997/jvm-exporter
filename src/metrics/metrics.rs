@@ -1,5 +1,5 @@
 use crate::config::Config;
-use prometheus::{GaugeVec, Registry};
+use prometheus::{GaugeVec, IntGaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -29,6 +29,7 @@ pub struct Metrics {
         Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
     pub(crate) probe_metrics: ProbeMetrics,
     pub(crate) version: GaugeVec,
+    pub(crate) os_version_info: IntGaugeVec,
 }
 
 pub(crate) struct ProcessMetrics {
@@ -407,6 +408,19 @@ impl Metrics {
             .register(Box::new(version.clone()))
             .expect("Failed to register ferris_watch_version metric");
 
+        let os_version_info = IntGaugeVec::new(
+            prometheus::Opts::new("os_version_info", "Detailed information about the host operating system"),
+            &["os_type",       // e.g., "Windows", "Ubuntu", "macOS"
+                            "os_release",    // Kernel release or build number
+                            "os_version",    // User-facing full version string
+                            "arch",          // e.g., "x86_64", "aarch64"
+                        ],
+        )
+        .expect("Failed to create os_version_info GaugeVec");
+        registry
+            .register(Box::new(os_version_info.clone()))
+            .expect("Failed to register os_version_info metric");
+
         Metrics {
             process_metrics,
             system_metrics,
@@ -415,6 +429,7 @@ impl Metrics {
             jstat_labels: Mutex::new(HashMap::new()),
             config,
             version,
+            os_version_info,
         }
     }
 }

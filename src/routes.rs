@@ -2,6 +2,7 @@ use crate::config::{with_config, Config};
 use crate::metrics;
 use crate::probes;
 use prometheus::Registry;
+use sysinfo::{System, SystemExt};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use warp::http::StatusCode;
@@ -20,6 +21,19 @@ pub fn setup_routes(
         .version
         .with_label_values(&[env!("CARGO_PKG_VERSION")])
         .set(env!("CARGO_PKG_VERSION").replace(".", "").parse().unwrap_or(0.0));
+
+    let system = System::new_all();
+    let os_type = system.name().unwrap_or_else(|| "unknown".to_string());
+    let os_release = system.kernel_version().unwrap_or_else(|| "unknown".to_string());
+    let os_version = system.long_os_version().unwrap_or_else(|| "unknown".to_string());
+    let arch = std::env::consts::ARCH.to_string();
+    metrics_instance.os_version_info
+        .with_label_values(&[
+            &os_type,
+            &os_release,
+            &os_version,
+            &arch
+        ]).set(1);
 
     let metrics_route = warp::path("metrics").and_then({
         let metrics_handler_metrics = Arc::clone(&metrics_instance);

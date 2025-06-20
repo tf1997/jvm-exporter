@@ -1,5 +1,5 @@
 use crate::config::{with_config, Config};
-use crate::metrics;
+use crate::{metrics, updater};
 use crate::probes;
 use prometheus::Registry;
 use sysinfo::{System, SystemExt};
@@ -26,7 +26,7 @@ pub fn setup_routes(
     let os_type = system.name().unwrap_or_else(|| "unknown".to_string());
     let os_release = system.kernel_version().unwrap_or_else(|| "unknown".to_string());
     let os_version = system.long_os_version().unwrap_or_else(|| "unknown".to_string());
-    let arch = std::env::consts::ARCH.to_string();
+    let arch = updater::get_real_os_arch();
     metrics_instance.os_version_info
         .with_label_values(&[
             &os_type,

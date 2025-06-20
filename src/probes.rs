@@ -1,22 +1,21 @@
-use log::{info, error};
+use log::error;
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 use std::net::IpAddr;
-use ping; // Import the crate directly
-use crate::metrics::metrics::Metrics; // Import the Metrics struct
-use std::sync::Arc; // Needed for Arc<Metrics>
-use std::time::Instant; // Use std::time::Instant directly
+use ping;
+use crate::metrics::metrics::Metrics;
+use std::sync::Arc;
+use std::time::Instant;
+use prometheus::{Registry, GaugeVec, Encoder, TextEncoder};
 
 pub async fn tcp_probe(metrics: Arc<Metrics>, host: String, port: u16) -> String {
     let timer = Instant::now();
     let address = format!("{}:{}", host, port);
-    log::info!("Attempting TCP probe to {}", address);
 
     let result = timeout(Duration::from_secs(5), TcpStream::connect(&address)).await;
 
     let success = match result {
         Ok(Ok(_)) => {
-            info!("TCP probe to {} successful.", address);
             1.0
         },
         Ok(Err(e)) => {
@@ -29,6 +28,7 @@ pub async fn tcp_probe(metrics: Arc<Metrics>, host: String, port: u16) -> String
         },
     };
 
+    // Update global metrics
     metrics
         .probe_metrics
         .probe_tcp_success
@@ -40,15 +40,40 @@ pub async fn tcp_probe(metrics: Arc<Metrics>, host: String, port: u16) -> String
         .with_label_values(&[host.as_str(), port.to_string().as_str()])
         .set(timer.elapsed().as_secs_f64());
 
-    // Since metrics are now global, we don't need to encode them here.
-    // The /metrics endpoint will handle the collection.
-    // Return an empty string or a simple success message.
-    "OK".to_string()
+    // Create a new registry for probe-specific metrics
+    let registry = Registry::new();
+
+    let probe_tcp_success_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_tcp_success", "TCP probe success status"),
+        &["host", "port"],
+    )
+    .expect("Failed to create probe_tcp_success GaugeVec for probe");
+    registry.register(Box::new(probe_tcp_success_local.clone())).expect("Failed to register probe_tcp_success_local metric");
+
+    let probe_tcp_duration_seconds_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_tcp_duration_seconds", "Duration of TCP probe in seconds"),
+        &["host", "port"],
+    )
+    .expect("Failed to create probe_tcp_duration_seconds GaugeVec for probe");
+    registry.register(Box::new(probe_tcp_duration_seconds_local.clone())).expect("Failed to register probe_tcp_duration_seconds_local metric");
+
+    probe_tcp_success_local
+        .with_label_values(&[host.as_str(), port.to_string().as_str()])
+        .set(success);
+    probe_tcp_duration_seconds_local
+        .with_label_values(&[host.as_str(), port.to_string().as_str()])
+        .set(timer.elapsed().as_secs_f64());
+
+    let encoder = TextEncoder::new();
+    let metric_families = registry.gather();
+    let mut buffer = Vec::new();
+    encoder.encode(&metric_families, &mut buffer).expect("Failed to encode probe metrics");
+
+    String::from_utf8(buffer).expect("Failed to convert probe metrics buffer to String")
 }
 
 pub async fn ping_probe(metrics: Arc<Metrics>, host: String) -> String {
     let timer = Instant::now();
-    log::info!("Attempting Ping probe to {}", host);
 
     let success = match host.parse::<IpAddr>() {
         Ok(ip_addr) => {
@@ -57,8 +82,7 @@ pub async fn ping_probe(metrics: Arc<Metrics>, host: String) -> String {
             })).await;
 
             match result {
-                Ok(Ok(_)) => { // Match on Ok(Ok(_)) as PingResult might not be directly accessible
-                    info!("Ping probe to {} successful.", host);
+                Ok(Ok(_)) => {
                     1.0
                 },
                 Ok(Err(e)) => {
@@ -88,8 +112,34 @@ pub async fn ping_probe(metrics: Arc<Metrics>, host: String) -> String {
         .with_label_values(&[host.as_str()])
         .set(timer.elapsed().as_secs_f64());
 
-    // Since metrics are now global, we don't need to encode them here.
-    // The /metrics endpoint will handle the collection.
-    // Return an empty string or a simple success message.
-    "OK".to_string()
+    // Create a new registry for probe-specific metrics
+    let registry = Registry::new();
+
+    let probe_ping_success_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_ping_success", "Ping probe success status"),
+        &["host"],
+    )
+    .expect("Failed to create probe_ping_success GaugeVec for probe");
+    registry.register(Box::new(probe_ping_success_local.clone())).expect("Failed to register probe_ping_success_local metric");
+
+    let probe_ping_duration_seconds_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_ping_duration_seconds", "Duration of Ping probe in seconds"),
+        &["host"],
+    )
+    .expect("Failed to create probe_ping_duration_seconds GaugeVec for probe");
+    registry.register(Box::new(probe_ping_duration_seconds_local.clone())).expect("Failed to register probe_ping_duration_seconds_local metric");
+
+    probe_ping_success_local
+        .with_label_values(&[host.as_str()])
+        .set(success);
+    probe_ping_duration_seconds_local
+        .with_label_values(&[host.as_str()])
+        .set(timer.elapsed().as_secs_f64());
+
+    let encoder = TextEncoder::new();
+    let metric_families = registry.gather();
+    let mut buffer = Vec::new();
+    encoder.encode(&metric_families, &mut buffer).expect("Failed to encode probe metrics");
+
+    String::from_utf8(buffer).expect("Failed to convert probe metrics buffer to String")
 }

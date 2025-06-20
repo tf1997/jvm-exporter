@@ -8,6 +8,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::process::Command;
 use tokio::fs;
 use tokio::time::sleep;
 #[cfg(target_os = "windows")]
@@ -261,17 +262,8 @@ fn get_platform_string() -> String {
         "unknown"
     };
 
-    let arch = if cfg!(target_arch = "x86_64") {
-        "x64"
-    } else if cfg!(target_arch = "x86") {
-        "x32"
-    } else if cfg!(target_arch = "arm") {
-        "arm"
-    } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else {
-        "unknown"
-    };
+    let arch = get_real_os_arch();
+
     #[cfg(target_os = "windows")]
     {
         let os_version = get_os_version();
@@ -326,4 +318,38 @@ pub fn is_windows7_or_lower() -> Option<bool> {
     // (major < 6) covers systems older than Vista (e.g., XP).
     // (major == 6 && minor <= 1) covers Windows 7 (6.1) and Vista (6.0).
     Some(major < 6 || (major == 6 && minor <= 1))
+}
+
+pub fn get_real_os_arch() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let arch = std::env::var("PROCESSOR_ARCHITEW6432")
+            .or_else(|_| std::env::var("PROCESSOR_ARCHITECTURE"))
+            .unwrap_or_else(|_| "unknown".to_string());
+        match arch.to_lowercase().as_str() {
+            "amd64" => "x64".to_string(),
+            "x86" => "x86".to_string(),
+            "arm64" => "aarch64".to_string(),
+            "arm" => "arm".to_string(),
+            other => other.to_string(),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("uname")
+            .arg("-m")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| "unknown".to_string());
+        let arch = output.trim();
+        match arch {
+            "x86_64" => "x64",
+            "i386" | "i686" => "x86",
+            "aarch64" => "aarch64",
+            "armv7l" | "armv8l" | "arm" => "arm",
+            other => other,
+        }
+        .to_string()
+    }
 }

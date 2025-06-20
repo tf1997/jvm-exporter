@@ -199,7 +199,7 @@ async fn main() {
         // Spawn a task for daily update checks
         let config_for_daily_update = Arc::clone(&config);
         tokio::spawn(updater::schedule_daily_update_check(config_for_daily_update));
-        monitor::init_and_run(auto_start, should_disable_auto_start, no_ui, java_home, full_path, Arc::clone(&config)).await;
+        monitor::init_and_run(auto_start, should_disable_auto_start, java_home, full_path, Arc::clone(&config)).await;
     }
 }
 

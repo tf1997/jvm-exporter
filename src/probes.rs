@@ -75,7 +75,17 @@ pub async fn tcp_probe(metrics: Arc<Metrics>, host: String, port: u16) -> String
 pub async fn ping_probe(metrics: Arc<Metrics>, host: String) -> String {
     let timer = Instant::now();
 
-    let success = match host.parse::<IpAddr>() {
+    let ip_addr_result:Result<IpAddr, Box<dyn std::error::Error + Send + Sync>> = match host.parse::<IpAddr>() {
+        Ok(ip) => Ok(ip),
+        Err(_) => {
+            match tokio::net::lookup_host((host.as_str(), 0)).await {
+                Ok(mut addrs) => addrs.next().map(|sockaddr| sockaddr.ip()).ok_or("No IP found".into()),
+                Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            }
+        }
+    };
+
+    let success = match ip_addr_result {
         Ok(ip_addr) => {
             let result = timeout(Duration::from_secs(5), tokio::task::spawn_blocking(move || {
                 ping::ping(ip_addr, None, None, None, None, None)
@@ -96,7 +106,7 @@ pub async fn ping_probe(metrics: Arc<Metrics>, host: String) -> String {
             }
         },
         Err(e) => {
-            error!("Invalid host address for ping probe: {}. Error: {}", host, e);
+            error!("Invalid host address for ping probe: {}. Error: {:?}", host, e);
             0.0
         }
     };

@@ -11,6 +11,7 @@ use {
     std::process::{Command, Stdio},
     anyhow::{anyhow, Context, Result},
     log::{error, warn},
+    std::os::windows::process::CommandExt,
 };
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {

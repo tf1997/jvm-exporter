@@ -51,12 +51,17 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         let max_retries = 5;
         let retry_delay = std::time::Duration::from_millis(500);
         for attempt in 0..max_retries {
-            match fs::copy(new_exe_path, &target_exe_path) {
+            match fs::copy(&new_exe_path, &target_exe_path) {
                 Ok(_) => {
                     info!("New executable copied to secure location: {}", target_exe_path.display());
                     break;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // If the copy fails, we retry up to max_retries times
+                Err(e) => {
+                    if attempt == max_retries - 1 {
+                        error!("Failed to copy new executable after {} attempts: {}", max_retries, e);
+                        return Err(Box::new(e));
+                    }
                     warn!(
                         "Failed to copy new executable (attempt {}): {}. Retrying in {:?}...",
                         attempt + 1,
@@ -64,11 +69,6 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
                         retry_delay
                     );
                     tokio::time::sleep(retry_delay).await;
-                }
-                Err(e) => {
-                    error!("Failed to copy new executable: {}", e);
-                    info!("e.kind:{}", e.kind());
-                    return Err(Box::new(e));
                 }
             }
         }
@@ -190,6 +190,10 @@ WantedBy=multi-user.target",
 
         std::process::Command::new("systemctl")
             .args(&["enable", &service_name])
+            .output()?;
+
+        std::process::Command::new("systemctl")
+            .args(&["start", &service_name])
             .output()?;
 
         info!("Service configured to auto-start with the system.");

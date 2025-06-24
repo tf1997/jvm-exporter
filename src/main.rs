@@ -51,6 +51,7 @@ async fn main() {
                 "Failed to fetch configuration from configuration service: {}",
                 e
             );
+            let _ = fetch_and_merge_config(&configuration_service_url, &mut config).await;
         }
     }
 

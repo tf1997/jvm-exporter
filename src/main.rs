@@ -98,6 +98,11 @@ async fn main() {
                 .long("auto-install")
                 .help("Only auto install the program to auto-start with the system"),
         )
+        .arg(
+            clap::Arg::new("no_ui")
+                .long("no-ui")
+                .help("Start the program without a UI, useful for server environments"),
+        )
     
         .get_matches();
 

@@ -107,7 +107,6 @@ pub async fn install_application_with_path(new_exe_path: &Path) -> Result<(), Bo
             Ok(_) => info!("Application started."),
             Err(e) => error!("Failed to start application: {}", e),
         }
-        info!("Application started.");
         Ok(())
     }
 

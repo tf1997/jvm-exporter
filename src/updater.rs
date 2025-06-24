@@ -116,7 +116,7 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
         std::fs::set_permissions(&downloaded_file_path, perms)?;
     }
     
-    info!("Please manually replace your current executable at {:?} with the new one at {:?} and restart the application.",
+    info!("Replacing your current executable at {:?} with the new one at {:?}.",
         current_exe, downloaded_file_path);
     Ok(downloaded_file_path)
 }

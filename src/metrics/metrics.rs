@@ -1,3 +1,4 @@
+use crate::collectors::network_info;
 use crate::config::Config;
 use prometheus::{GaugeVec, IntGaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
@@ -54,6 +55,8 @@ pub(crate) struct SystemMetrics {
     pub(crate) network_transmit_bytes_per_sec: GaugeVec,
     pub(crate) network_receive_bytes_total: GaugeVec,
     pub(crate) network_transmit_bytes_total: GaugeVec,
+    pub(crate) network_link_speed: GaugeVec,
+    pub(crate) network_info: GaugeVec,
     pub(crate) uptime: GaugeVec,
     pub(crate) total_swap: GaugeVec,
     pub(crate) swap_usage: GaugeVec,
@@ -303,6 +306,27 @@ impl Metrics {
                 .register(Box::new(network_transmit_bytes_total.clone()))
                 .expect("Failed to register system_network_transmit_bytes metric");
 
+            let network_link_speed = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_network_link_speed",
+                    "Network interface link speed in Mbps",
+                ),
+                &["interface"],
+            )
+            .expect("Failed to create system_network_link_speed GaugeVec");
+            registry
+                .register(Box::new(network_link_speed.clone()))
+                .expect("Failed to register system_network_link_speed metric");
+
+            let network_info = GaugeVec::new(
+                prometheus::Opts::new("system_network_interface_info", "Network interface info"),
+                &["interface", "mac", "ip", "type", "gateway", "dns"],
+            )
+            .expect("Failed to create system_network_info GaugeVec");
+            registry
+                .register(Box::new(network_info.clone()))
+                .expect("Failed to register system_network_interface_info metric");
+
             // System Uptime
             let uptime = GaugeVec::new(
                 prometheus::Opts::new("system_uptime_seconds", "Total system uptime in seconds"),
@@ -373,6 +397,8 @@ impl Metrics {
                 network_receive_bytes_total,
                 network_transmit_bytes_per_sec,
                 network_transmit_bytes_total,
+                network_link_speed,
+                network_info,
                 uptime,
                 total_swap,
                 swap_usage,

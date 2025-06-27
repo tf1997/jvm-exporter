@@ -1,6 +1,7 @@
+use crate::collectors::network_info;
 use crate::config::{with_config, Config};
-use crate::{metrics, updater};
 use crate::probes;
+use crate::{metrics, updater};
 use prometheus::Registry;
 use sysinfo::{System};
 use std::collections::HashMap;
@@ -20,19 +21,53 @@ pub fn setup_routes(
     metrics_instance
         .version
         .with_label_values(&[env!("CARGO_PKG_VERSION")])
-        .set(env!("CARGO_PKG_VERSION").replace(".", "").parse().unwrap_or(0.0));
+        .set(
+            env!("CARGO_PKG_VERSION")
+                .replace(".", "")
+                .parse()
+                .unwrap_or(0.0),
+        );
 
     let os_type = System::name().unwrap_or_else(|| "unknown".to_string());
     let os_release = System::kernel_version().unwrap_or_else(|| "unknown".to_string());
     let os_version = System::long_os_version().unwrap_or_else(|| "unknown".to_string());
     let arch = updater::get_real_os_arch();
-    metrics_instance.os_version_info
-        .with_label_values(&[
-            &os_type,
-            &os_release,
-            &os_version,
-            &arch
-        ]).set(1);
+    metrics_instance
+        .os_version_info
+        .with_label_values(&[&os_type, &os_release, &os_version, &arch])
+        .set(1);
+
+    let info_list = network_info::collect_all_interface_info();
+    for info in info_list {
+        let ips_str = info
+            .ips
+            .iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let dns_str = info.dns_servers.join(",");
+
+        metrics_instance
+            .system_metrics
+            .network_info
+            .with_label_values(&[
+                &info.name,
+                &info.mac_address,
+                &ips_str,
+                &info.interface_type,
+                info.gateway.as_deref().unwrap_or(""),
+                &dns_str,
+            ])
+            .set(1.0);
+
+        if let Some(speed) = info.link_speed_mbps {
+            metrics_instance
+                .system_metrics
+                .network_link_speed
+                .with_label_values(&[&info.name])
+                .set(speed as f64);
+        }
+    }
 
     let metrics_route = warp::path("metrics").and_then({
         let metrics_handler_metrics = Arc::clone(&metrics_instance);

@@ -1,4 +1,3 @@
-use crate::collectors::network_info;
 use crate::config::Config;
 use prometheus::{GaugeVec, IntGaugeVec, Registry};
 use std::collections::{HashMap, HashSet};

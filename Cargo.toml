@@ -18,7 +18,7 @@ serde = { version = "=1.0.219", features = ["derive"] }
 serde_json = "=1.0.140"
 serde_yaml = "=0.9.34"
 ureq = "=2.0.2"
-regex = "=1.5.6"
+regex = "=1.9.1"
 netstat-esr = "=0.8.1"
 dirs = "=5.0.1"
 log4rs = "=1.2.0"
@@ -28,7 +28,7 @@ semver = "=1.0.26" # Add semver crate
 ping = "=0.5.0"
 lazy_static = "=1.4.0"
 getrandom = "=0.2.7"
-
+pnet = "0.35.0"
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.50.0"
 winapi = { version = "=0.3.9", features = ["processthreadsapi", "winbase"] }

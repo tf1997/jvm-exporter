@@ -11,6 +11,10 @@ mod metrics {
     pub mod timer;
 }
 
+mod collectors {
+    pub mod network_info;
+}
+
 use clap;
 use log::{info, error, LevelFilter};
 use crate::config::{fetch_and_merge_config, Config};

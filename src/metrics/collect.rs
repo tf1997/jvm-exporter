@@ -11,7 +11,9 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{CpuRefreshKind, DiskExt, Pid, PidExt, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
+use sysinfo::{
+    CpuRefreshKind, DiskExt, NetworkExt, Pid, PidExt, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt
+};
 use tokio::process::Command;
 
 pub(crate) async fn handle_metrics(
@@ -98,11 +100,14 @@ async fn update_metrics(
 
     let mut system = System::new_with_specifics(
         RefreshKind::new()
-        .with_processes(ProcessRefreshKind::new().with_cpu())
-        .with_cpu(CpuRefreshKind::new().with_cpu_usage())
-        .with_memory()
-        .with_disks()
-        .with_disks_list());
+            .with_processes(ProcessRefreshKind::new().with_cpu())
+            .with_cpu(CpuRefreshKind::new().with_cpu_usage())
+            .with_memory()
+            .with_disks()
+            .with_disks_list()
+            .with_networks()
+            .with_networks_list(),
+    );
 
     // 3. Collect System Processes from Config
     let config = metrics.config.read().unwrap().clone();
@@ -577,7 +582,9 @@ async fn update_system_metrics(
         RefreshKind::new()
             .with_cpu(CpuRefreshKind::new().with_cpu_usage())
             .with_memory()
-            .with_disks()
+            .with_networks()
+            .with_networks_list()
+            .with_disks(),
     );
     metrics
         .system_metrics
@@ -657,6 +664,23 @@ async fn update_system_metrics(
             .tcp_connection_states
             .with_label_values(&["system", state])
             .set(*count as f64);
+    }
+
+    for (interface_name, data) in system.networks() {
+                                
+        let received = data.total_received() as f64;
+        let transmitted = data.total_transmitted() as f64;
+        metrics
+            .system_metrics
+            .network_receive_bytes_total
+            .with_label_values(&[interface_name])
+            .set(received);
+
+        metrics
+            .system_metrics
+            .network_transmit_bytes_total
+            .with_label_values(&[interface_name])
+            .set(transmitted);
     }
 
     Ok(())

@@ -11,8 +11,8 @@ pub fn run(metrics: Arc<Metrics>) {
         move || {
             let metrics = Arc::clone(&metrics);
             async move {
-                let mut network_task_interval = interval(Duration::from_millis(3000));
-                let mut cpu_task_interval = interval(Duration::from_millis(1000));
+                let mut network_task_interval = interval(Duration::from_millis(10000));
+                let mut cpu_task_interval = interval(Duration::from_millis(5000));
 
                 loop {
                     tokio::select! {

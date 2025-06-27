@@ -52,6 +52,8 @@ pub(crate) struct SystemMetrics {
     pub(crate) total_disk: GaugeVec,
     pub(crate) network_receive_bytes_per_sec: GaugeVec,
     pub(crate) network_transmit_bytes_per_sec: GaugeVec,
+    pub(crate) network_receive_bytes_total: GaugeVec,
+    pub(crate) network_transmit_bytes_total: GaugeVec,
     pub(crate) uptime: GaugeVec,
     pub(crate) total_swap: GaugeVec,
     pub(crate) swap_usage: GaugeVec,
@@ -264,6 +266,18 @@ impl Metrics {
                 .register(Box::new(network_receive_bytes_per_sec.clone()))
                 .expect("Failed to register system_network_receive_bytes_per_sec metric");
 
+            let network_receive_bytes_total = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_network_receive_bytes_total",
+                    "Total number of bytes received on an interface",
+                ),
+                &["interface"],
+            )
+            .expect("Failed to create system_network_receive_bytes_total GaugeVec");
+            registry
+                .register(Box::new(network_receive_bytes_total.clone()))
+                .expect("Failed to register system_network_receive_bytes_total metric");
+
             // Network Transmit Bytes Per Sec
             let network_transmit_bytes_per_sec = GaugeVec::new(
                 prometheus::Opts::new(
@@ -276,6 +290,18 @@ impl Metrics {
             registry
                 .register(Box::new(network_transmit_bytes_per_sec.clone()))
                 .expect("Failed to register system_network_transmit_bytes_per_sec metric");
+
+            let network_transmit_bytes_total = GaugeVec::new(
+                prometheus::Opts::new(
+                    "system_network_transmit_bytes_total",
+                    "Total number of bytes transmitted on an interface",
+                ),
+                &["interface"],
+            )
+            .expect("Failed to create system_network_transmit_bytes GaugeVec");
+            registry
+                .register(Box::new(network_transmit_bytes_total.clone()))
+                .expect("Failed to register system_network_transmit_bytes metric");
 
             // System Uptime
             let uptime = GaugeVec::new(
@@ -344,7 +370,9 @@ impl Metrics {
                 disk_usage,
                 total_disk,
                 network_receive_bytes_per_sec,
+                network_receive_bytes_total,
                 network_transmit_bytes_per_sec,
+                network_transmit_bytes_total,
                 uptime,
                 total_swap,
                 swap_usage,
@@ -355,7 +383,6 @@ impl Metrics {
         };
 
         let probe_metrics = {
-
             let probe_tcp_success = GaugeVec::new(
                 prometheus::Opts::new("probe_tcp_success", "TCP probe success status"),
                 &["host", "port"],
@@ -365,8 +392,11 @@ impl Metrics {
                 .register(Box::new(probe_tcp_success.clone()))
                 .expect("Failed to register probe_tcp_success metric");
 
-            let probe_tcp_duration_seconds= GaugeVec::new(
-                prometheus::Opts::new("probe_tcp_duration_seconds", "Duration of TCP probe in seconds"),
+            let probe_tcp_duration_seconds = GaugeVec::new(
+                prometheus::Opts::new(
+                    "probe_tcp_duration_seconds",
+                    "Duration of TCP probe in seconds",
+                ),
                 &["host", "port"],
             )
             .expect("Failed to create probe_tcp_duration_seconds GaugeVec");
@@ -374,7 +404,7 @@ impl Metrics {
                 .register(Box::new(probe_tcp_duration_seconds.clone()))
                 .expect("Failed to register probe_tcp_duration_seconds metric");
 
-            let probe_ping_success= GaugeVec::new(
+            let probe_ping_success = GaugeVec::new(
                 prometheus::Opts::new("probe_ping_success", "Ping probe success status"),
                 &["host"],
             )
@@ -384,7 +414,10 @@ impl Metrics {
                 .expect("Failed to register probe_ping_success metric");
 
             let probe_ping_duration_seconds = GaugeVec::new(
-                prometheus::Opts::new("probe_ping_duration_seconds", "Duration of Ping probe in seconds"),
+                prometheus::Opts::new(
+                    "probe_ping_duration_seconds",
+                    "Duration of Ping probe in seconds",
+                ),
                 &["host"],
             )
             .expect("Failed to create probe_ping_duration_seconds GaugeVec");
@@ -409,12 +442,16 @@ impl Metrics {
             .expect("Failed to register ferris_watch_version metric");
 
         let os_version_info = IntGaugeVec::new(
-            prometheus::Opts::new("os_version_info", "Detailed information about the host operating system"),
-            &["os_type",       // e.g., "Windows", "Ubuntu", "macOS"
-                            "os_release",    // Kernel release or build number
-                            "os_version",    // User-facing full version string
-                            "arch",          // e.g., "x86_64", "aarch64"
-                        ],
+            prometheus::Opts::new(
+                "os_version_info",
+                "Detailed information about the host operating system",
+            ),
+            &[
+                "os_type",    // e.g., "Windows", "Ubuntu", "macOS"
+                "os_release", // Kernel release or build number
+                "os_version", // User-facing full version string
+                "arch",       // e.g., "x86_64", "aarch64"
+            ],
         )
         .expect("Failed to create os_version_info GaugeVec");
         registry

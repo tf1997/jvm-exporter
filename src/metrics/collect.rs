@@ -10,7 +10,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Pid, RefreshKind, System};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Pid, RefreshKind, System, Networks};
 use tokio::process::Command;
 
 pub(crate) async fn handle_metrics(
@@ -582,7 +582,7 @@ async fn update_system_metrics(
     system.refresh_specifics(
         RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
-            .with_memory(MemoryRefreshKind::everything()),
+            .with_memory(MemoryRefreshKind::everything())
     );
     metrics
         .system_metrics
@@ -686,6 +686,23 @@ async fn update_system_metrics(
             .tcp_connection_states
             .with_label_values(&["system", state])
             .set(*count as f64);
+    }
+
+    for (interface_name, data) in &Networks::new_with_refreshed_list() {
+                                
+        let received = data.total_received() as f64;
+        let transmitted = data.total_transmitted() as f64;
+        metrics
+            .system_metrics
+            .network_receive_bytes_total
+            .with_label_values(&[interface_name])
+            .set(received);
+
+        metrics
+            .system_metrics
+            .network_transmit_bytes_total
+            .with_label_values(&[interface_name])
+            .set(transmitted);
     }
 
     Ok(())

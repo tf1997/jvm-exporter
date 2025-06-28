@@ -1,5 +1,4 @@
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct InterfaceInfo {

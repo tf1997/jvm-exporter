@@ -219,7 +219,7 @@ mod platform {
                             if !sockaddr.is_null() && (*sockaddr).sa_family == 2 { // AF_INET (IPv4)
                                 let sockaddr_in = sockaddr as *const SOCKADDR_IN;
                                 let s_addr = (*sockaddr_in).sin_addr.S_un.S_addr;
-                                details.gateway = Some(std::net::Ipv4Addr::from(s_addr.to_be_bytes()).to_string());
+                                details.gateway = Some(std::net::Ipv4Addr::from(s_addr.to_le_bytes()).to_string());
                             }
                         }
 
@@ -230,7 +230,7 @@ mod platform {
                             if !sockaddr.is_null() && (*sockaddr).sa_family == 2 { // AF_INET (IPv4)
                                 let sockaddr_in = sockaddr as *const SOCKADDR_IN;
                                 let s_addr = (*sockaddr_in).sin_addr.S_un.S_addr;
-                                details.dns.push(std::net::Ipv4Addr::from(s_addr.to_be_bytes()).to_string());
+                                details.dns.push(std::net::Ipv4Addr::from(s_addr.to_le_bytes()).to_string());
                             }
                             dns_ptr = (*dns_ptr).Next;
                         }

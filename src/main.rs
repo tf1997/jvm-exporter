@@ -134,8 +134,8 @@ async fn main() {
     if install_no_ui || auto_install {
         match installer::install_application().await {
             Ok(_) => {
-                // show_info_dialog("Installation successful! Please restart the application.", window.clone());
-                info!("Installation successful! Please restart the application.");
+                // show_info_dialog("Installation successful!", window.clone());
+                info!("Installation successful!");
                 std::process::exit(0);
             },
             Err(e) => {

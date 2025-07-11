@@ -6,9 +6,10 @@ use log::{error, info};
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 use std::process::Command;
+use std::sync::{Arc, RwLock};
 use tokio::fs;
 use tokio::time::sleep;
 #[cfg(target_os = "windows")]
@@ -115,7 +116,7 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
         perms.set_mode(0o755);
         std::fs::set_permissions(&downloaded_file_path, perms)?;
     }
-    
+
     info!("Please manually replace your current executable at {:?} with the new one at {:?} and restart the application.",
         current_exe, downloaded_file_path);
     Ok(downloaded_file_path)
@@ -188,11 +189,21 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                         "Attempting to run new executable: {:?}",
                         downloaded_file_path
                     );
-                    match std::process::Command::new(&downloaded_file_path)
-                        .arg("--auto-install")
-                        .spawn()
+                    let mut command = std::process::Command::new(&downloaded_file_path);
+                    command.arg("--auto-install");
+
+                    #[cfg(unix)]
                     {
+                        command.before_exec(|| {
+                            nix::unistd::setsid()
+                                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                            Ok(())
+                        });
+                    }
+
+                    match command.spawn() {
                         Ok(_) => {
+                            info!("Run new executable: {:?} successfully",downloaded_file_path);
                             std::process::exit(0); // Exit the current process after starting the new one
                         }
                         Err(e) => {

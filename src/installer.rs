@@ -1,7 +1,8 @@
-use log::{info};
+use log::{info, error, warn};
 use std::error::Error;
 use std::fs;
 use std::io::Write;
+#[cfg(not(target_os = "windows"))]
 use std::path::Path;
 
 #[cfg(target_os = "windows")]
@@ -130,12 +131,34 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
             fs::create_dir_all(binary_target_dir)?;
             info!("Target directory created: {}", binary_target_dir);
         }
-
+        kill_process_on_port(29090)?;
         // Copy the new executable to the target path, overwriting if it exists
         info!("new_exe_path: {}", new_exe_path.display());
         info!("binary_target_path: {}", binary_target_path);
-        fs::copy(new_exe_path, &binary_target_path)?;
-        info!("New executable copied to: {}", binary_target_path);
+        let max_retries = 5;
+        let retry_delay = std::time::Duration::from_millis(500);
+        for attempt in 0..max_retries {
+            match fs::copy(&new_exe_path, &binary_target_path) {
+                Ok(_) => {
+                    info!("New executable copied to: {}", binary_target_path);
+                    break;
+                }
+                // If the copy fails, we retry up to max_retries times
+                Err(e) => {
+                    if attempt == max_retries - 1 {
+                        error!("Failed to copy new executable after {} attempts: {}", max_retries, e);
+                        return Err(Box::new(e));
+                    }
+                    warn!(
+                        "Failed to copy new executable (attempt {}): {}. Retrying in {:?}...",
+                        attempt + 1,
+                        e,
+                        retry_delay
+                    );
+                    tokio::time::sleep(retry_delay).await;
+                }
+            }
+        }
 
         let java_home = std::env::var("JAVA_HOME").ok();
 
@@ -291,4 +314,47 @@ pub fn kill_process_on_port(port: u16) -> Result<()> {
             Ok(())
         }
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn kill_process_on_port(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Command;
+    use std::str;
+
+    // 使用 lsof 查找占用端口的进程
+    let output = Command::new("lsof")
+        .args(&["-i", &format!(":{}", port), "-sTCP:LISTEN", "-t"])
+        .output()?;
+
+    if !output.status.success() {
+        // 没有进程占用该端口，不算错误
+        log::info!("No process found LISTENING on TCP port {}.", port);
+        return Ok(());
+    }
+
+    let stdout = str::from_utf8(&output.stdout)?;
+    let mut killed = false;
+    for line in stdout.lines() {
+        if let Ok(pid) = line.trim().parse::<i32>() {
+            log::info!("Attempting to kill process PID {} found on port {}...", pid, port);
+            let kill_output = Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()?;
+            if kill_output.status.success() {
+                log::info!("Successfully killed PID {} on port {}", pid, port);
+                killed = true;
+            } else {
+                log::error!(
+                    "Failed to kill PID {}: {}",
+                    pid,
+                    String::from_utf8_lossy(&kill_output.stderr)
+                );
+            }
+        }
+    }
+    if !killed {
+        log::info!("No process killed for port {}.", port);
+    }
+    Ok(())
 }

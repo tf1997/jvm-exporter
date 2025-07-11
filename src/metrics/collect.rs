@@ -12,6 +12,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Pid, RefreshKind, System, Networks};
 use tokio::process::Command;
+use crate::collectors::disk;
 
 pub(crate) async fn handle_metrics(
     metrics: Arc<Metrics>,
@@ -599,6 +600,11 @@ async fn update_system_metrics(
     // Update Disk usage
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
+        let file_system = disk.file_system()
+            .to_str()
+            .unwrap_or("unknown")
+            .to_string();
+        let kind = disk.kind().to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
         if mount_point.contains("docker")
             || mount_point.contains("containerd")
@@ -613,13 +619,13 @@ async fn update_system_metrics(
         metrics
             .system_metrics
             .disk_usage
-            .with_label_values(&[&disk_name, &mount_point])
+            .with_label_values(&[&disk_name, &mount_point, &file_system, &kind])
             .set(used_space);
 
         metrics
             .system_metrics
             .total_disk
-            .with_label_values(&[&disk_name, &mount_point])
+            .with_label_values(&[&disk_name, &mount_point, &file_system, &kind])
             .set(total_space);
     }
 
@@ -703,6 +709,16 @@ async fn update_system_metrics(
             .network_transmit_bytes_total
             .with_label_values(&[interface_name])
             .set(transmitted);
+    }
+
+    let disks = disk::new_collector().collect().unwrap();
+
+    for disk in disks {
+        metrics
+        .system_metrics
+        .disk_smart_health_status
+        .with_label_values(&[&disk.name, &disk.model, &disk.serial, &disk.raw_status])
+        .set(disk.health_ok as f64);
     }
 
     Ok(())

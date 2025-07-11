@@ -50,6 +50,7 @@ pub(crate) struct SystemMetrics {
     pub(crate) total_memory: GaugeVec,
     pub(crate) disk_usage: GaugeVec,
     pub(crate) total_disk: GaugeVec,
+    pub(crate) disk_smart_health_status: GaugeVec,
     pub(crate) network_receive_bytes_per_sec: GaugeVec,
     pub(crate) network_transmit_bytes_per_sec: GaugeVec,
     pub(crate) network_receive_bytes_total: GaugeVec,
@@ -238,7 +239,7 @@ impl Metrics {
             // System Disk Usage
             let disk_usage = GaugeVec::new(
                 prometheus::Opts::new("system_disk_usage_bytes", "Disk usage in bytes"),
-                &["disk", "mount_point"],
+                &["disk", "mount_point", "filesystem", "kind"],
             )
             .expect("Failed to create system_disk_usage_bytes GaugeVec");
             registry
@@ -248,12 +249,21 @@ impl Metrics {
             // System Total Disk
             let total_disk = GaugeVec::new(
                 prometheus::Opts::new("system_total_disk_bytes", "Total disk space in bytes"),
-                &["disk", "mount_point"],
+                &["disk", "mount_point", "filesystem", "kind"],
             )
             .expect("Failed to create system_total_disk_bytes GaugeVec");
             registry
                 .register(Box::new(total_disk.clone()))
                 .expect("Failed to register system_total_disk_bytes metric");
+
+            let disk_smart_health_status = GaugeVec::new(
+                prometheus::Opts::new("system_disk_smart_health_status", "SMART health status of the disk (1 = OK, 0 = Failing)"),
+                &["disk", "model", "serial", "raw_status"],
+            )
+            .expect("Failed to create disk_smart_health_status GaugeVec");
+            registry
+                .register(Box::new(disk_smart_health_status.clone()))
+                .expect("Failed to register disk_smart_health_status metric");
 
             // Network Receive Bytes Per Sec
             let network_receive_bytes_per_sec = GaugeVec::new(
@@ -392,6 +402,7 @@ impl Metrics {
                 total_memory,
                 disk_usage,
                 total_disk,
+                disk_smart_health_status,
                 network_receive_bytes_per_sec,
                 network_receive_bytes_total,
                 network_transmit_bytes_per_sec,

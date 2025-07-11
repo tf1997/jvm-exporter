@@ -18,6 +18,7 @@ mod metrics {
 
 mod collectors {
     pub mod network_info;
+    pub mod disk;
 }
 
 use clap;

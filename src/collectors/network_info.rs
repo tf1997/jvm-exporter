@@ -213,7 +213,7 @@ mod platform {
                         }
 
                         // --- Get Gateway ---
-                        let mut gateway_ptr = (*current_adapter).FirstGatewayAddress;
+                        let gateway_ptr = (*current_adapter).FirstGatewayAddress;
                         if !gateway_ptr.is_null() {
                             let sockaddr = (*gateway_ptr).Address.lpSockaddr;
                             if !sockaddr.is_null() && (*sockaddr).sa_family == 2 { // AF_INET (IPv4)

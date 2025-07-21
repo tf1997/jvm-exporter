@@ -6,7 +6,6 @@ use log::{error, info};
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, RwLock};
@@ -194,6 +193,7 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
 
                     #[cfg(unix)]
                     {
+                        use std::os::unix::process::CommandExt;
                         command.before_exec(|| {
                             nix::unistd::setsid()
                                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;

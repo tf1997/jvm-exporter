@@ -27,17 +27,13 @@ pub fn new_collector() -> Box<dyn SmartCollector + Send + Sync> {
     Box::new(WmiApiCollector)
 }
 
-#[cfg(target_os = "linux")]
-pub fn new_collector() -> Box<dyn SmartCollector + Send + Sync> {
-    Box::new(SmartctlCollector)
-}
 
 #[cfg(target_os = "macos")]
 pub fn new_collector() -> Box<dyn SmartCollector + Send + Sync> {
     Box::new(DiskutilCollector)
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn new_collector() -> Box<dyn SmartCollector + Send + Sync> {
     Box::new(UnsupportedCollector)
 }
@@ -142,87 +138,6 @@ impl SmartCollector for WmiApiCollector {
     }
 }
 
-// --- Linux Collector using lsblk and smartctl ---
-#[cfg(target_os = "linux")]
-struct SmartctlCollector;
-
-#[cfg(target_os = "linux")]
-impl SmartCollector for SmartctlCollector {
-    fn collect(&self) -> Result<Vec<DiskHealth>, String> {
-        use std::process::Command;
-        use serde_json;
-
-        // Step 1: Discover devices using lsblk for reliability
-        let lsblk_output = Command::new("lsblk")
-            .args(&["-dJ", "-o", "NAME"])
-            .output()
-            .map_err(|e| format!("Failed to execute 'lsblk': {}. Is util-linux installed?", e))?;
-
-        if !lsblk_output.status.success() {
-            return Err(format!("lsblk exited with an error: {}", String::from_utf8_lossy(&lsblk_output.stderr)));
-        }
-
-        #[derive(Deserialize)] struct LsblkOutput { blockdevices: Vec<BlockDevice> }
-        #[derive(Deserialize)] struct BlockDevice { name: String }
-
-        let lsblk_stdout = String::from_utf8_lossy(&lsblk_output.stdout);
-        let devices_info: LsblkOutput = serde_json::from_str(&lsblk_stdout)
-            .map_err(|e| format!("Failed to parse lsblk JSON output: {}", e))?;
-        
-        let device_paths: Vec<String> = devices_info.blockdevices
-            .into_iter()
-            .map(|dev| format!("/dev/{}", dev.name))
-            .collect();
-
-        if device_paths.is_empty() {
-            println!("No block devices found by lsblk.");
-            return Ok(Vec::new());
-        }
-        
-        println!("Found devices via lsblk: {:?}", device_paths);
-
-        // Step 2: Query each device with smartctl
-        let mut disks = Vec::new();
-        
-        #[derive(Deserialize)] struct SmartctlInfo { device: DeviceInfo, model_name: Option<String>, serial_number: Option<String>, smart_status: SmartStatus }
-        #[derive(Deserialize)] struct DeviceInfo { name: String }
-        #[derive(Deserialize)] struct SmartStatus { passed: bool }
-
-        for path in device_paths {
-            println!("Querying {} with smartctl...", path);
-            let info_output = Command::new("smartctl")
-                .args(&["-a", "-j", &path])
-                .output()
-                .map_err(|e| format!("Failed to run smartctl for device {}: {}", path, e))?;
-            
-            if !info_output.status.success() {
-                eprintln!("Warning: smartctl failed for {}. It may not support SMART. Stderr: {}", path, String::from_utf8_lossy(&info_output.stderr));
-                continue;
-            }
-
-            let info_stdout = String::from_utf8_lossy(&info_output.stdout);
-            match serde_json::from_str::<SmartctlInfo>(&info_stdout) {
-                Ok(info) => {
-                    let health_ok = if info.smart_status.passed { 1 } else { 0 };
-                    let raw_status = if info.smart_status.passed { "PASSED" } else { "FAILED" }.to_string();
-
-                    disks.push(DiskHealth {
-                        name: info.device.name.replace("/dev/", ""),
-                        model: info.model_name.unwrap_or_else(|| "N/A".to_string()),
-                        serial: info.serial_number.unwrap_or_else(|| "N/A".to_string()),
-                        health_ok,
-                        raw_status,
-                    });
-                }
-                Err(e) => {
-                    eprintln!("Warning: Failed to parse smartctl JSON for {}: {}. Output was: {}", path, e, info_stdout);
-                }
-            }
-        }
-        Ok(disks)
-    }
-}
-
 // --- macOS Collector using diskutil ---
 #[cfg(target_os = "macos")]
 struct DiskutilCollector;
@@ -306,9 +221,9 @@ fn is_partition(device_id: &str) -> bool {
 }
 
 // --- Fallback for unsupported OS ---
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 struct UnsupportedCollector;
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 impl SmartCollector for UnsupportedCollector {
     fn collect(&self) -> Result<Vec<DiskHealth>, String> {
         Err("This operating system is not supported.".to_string())

@@ -1,3 +1,4 @@
+use crate::collectors::disk;
 pub use crate::metrics::metrics::{
     Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES,
 };
@@ -10,9 +11,8 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Pid, RefreshKind, System, Networks};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, Pid, RefreshKind, System};
 use tokio::process::Command;
-use crate::collectors::disk;
 
 pub(crate) async fn handle_metrics(
     metrics: Arc<Metrics>,
@@ -583,7 +583,7 @@ async fn update_system_metrics(
     system.refresh_specifics(
         RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
-            .with_memory(MemoryRefreshKind::everything())
+            .with_memory(MemoryRefreshKind::everything()),
     );
     metrics
         .system_metrics
@@ -600,10 +600,7 @@ async fn update_system_metrics(
     // Update Disk usage
     for disk in &Disks::new_with_refreshed_list() {
         let disk_name = disk.name().to_str().unwrap_or("unknown").to_string();
-        let file_system = disk.file_system()
-            .to_str()
-            .unwrap_or("unknown")
-            .to_string();
+        let file_system = disk.file_system().to_str().unwrap_or("unknown").to_string();
         let kind = disk.kind().to_string();
         let mount_point = disk.mount_point().to_str().unwrap_or("/").to_string();
         if mount_point.contains("docker")
@@ -695,7 +692,6 @@ async fn update_system_metrics(
     }
 
     for (interface_name, data) in &Networks::new_with_refreshed_list() {
-                                
         let received = data.total_received() as f64;
         let transmitted = data.total_transmitted() as f64;
         metrics
@@ -711,14 +707,17 @@ async fn update_system_metrics(
             .set(transmitted);
     }
 
-    let disks = disk::new_collector().collect().unwrap();
+    #[cfg(target_os = "windows")]
+    {
+        let disks = disk::new_collector().collect().unwrap();
 
-    for disk in disks {
-        metrics
-        .system_metrics
-        .disk_smart_health_status
-        .with_label_values(&[&disk.name, &disk.model, &disk.serial, &disk.raw_status])
-        .set(disk.health_ok as f64);
+        for disk in disks {
+            metrics
+                .system_metrics
+                .disk_smart_health_status
+                .with_label_values(&[&disk.name, &disk.model, &disk.serial, &disk.raw_status])
+                .set(disk.health_ok as f64);
+        }
     }
 
     Ok(())

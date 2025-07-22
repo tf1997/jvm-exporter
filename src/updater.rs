@@ -203,8 +203,14 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
 
                     match command.spawn() {
                         Ok(_) => {
-                            info!("Run new executable: {:?} successfully",downloaded_file_path);
-                            std::process::exit(0); // Exit the current process after starting the new one
+                            info!(
+                                "Run new executable: {:?} successfully",
+                                downloaded_file_path
+                            );
+                            #[cfg(target_os = "windows")]
+                            {
+                                std::process::exit(0);
+                            }
                         }
                         Err(e) => {
                             error!("Failed to start new executable: {}", e);

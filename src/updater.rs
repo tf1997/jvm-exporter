@@ -340,9 +340,8 @@ pub fn is_windows7_or_lower() -> Option<bool> {
     //
     // Even without a manifest, on a Win 8+ system, `GetVersionExW` will return at least 6.2.
     // So, we can safely check if the version is less than or equal to 6.1.
-    // (major < 6) covers systems older than Vista (e.g., XP).
-    // (major == 6 && minor <= 1) covers Windows 7 (6.1) and Vista (6.0).
-    Some(major < 6 || (major == 6 && minor <= 1))
+    // All versions below Windows 10 are considered Win7.
+    Some(major < 10)
 }
 
 pub fn get_real_os_arch() -> String {

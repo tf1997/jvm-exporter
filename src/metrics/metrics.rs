@@ -34,6 +34,7 @@ pub struct Metrics {
 
 pub(crate) struct ProcessMetrics {
     pub(crate) cpu_usage: GaugeVec,
+    pub(crate) process_online_status: GaugeVec,
     pub(crate) memory_usage: GaugeVec,
     pub(crate) memory_usage_percentage: GaugeVec,
     pub(crate) start_time: GaugeVec,
@@ -185,6 +186,19 @@ impl Metrics {
                 .register(Box::new(tcp_connection_states.clone()))
                 .expect("Failed to register process_tcp_connection_states metric");
 
+            // Process Online Status
+            let process_online_status = GaugeVec::new(
+                prometheus::Opts::new(
+                    "process_online_status",
+                    "Online status of the process (1 = online, 0 = offline)",
+                ),
+                &["container", "pid", "process_name"],
+            )
+            .expect("Failed to create process_online_status GaugeVec");
+            registry
+                .register(Box::new(process_online_status.clone()))
+                .expect("Failed to register process_online_status metric");
+
             ProcessMetrics {
                 cpu_usage,
                 memory_usage,
@@ -195,6 +209,7 @@ impl Metrics {
                 open_file,
                 open_file_limit,
                 tcp_connection_states,
+                process_online_status,
             }
         };
 

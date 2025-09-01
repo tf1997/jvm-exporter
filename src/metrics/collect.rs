@@ -134,6 +134,15 @@ async fn update_metrics(
         .map(|p| (format!("{}#{}", p.container, p.pid), p.process.clone()))
         .collect();
 
+    // Set process_online_status to 1.0 for all current processes
+    for proc_info in all_processes.iter() {
+        metrics
+            .process_metrics
+            .process_online_status
+            .with_label_values(&[&proc_info.container, &proc_info.pid, &proc_info.process])
+            .set(1.0);
+    }
+
     // Identify removed PIDs
     let removed_pids: Vec<(String, String)> = {
         let active_pids = metrics.active_pids.lock().await;
@@ -147,12 +156,9 @@ async fn update_metrics(
     // Remove metrics for removed PIDs
     if !removed_pids.is_empty() {
         let mut active_pids = metrics.active_pids.lock().await;
-        for (key, _) in &removed_pids {
-            active_pids.remove(key);
-        }
-        info!("Removed PIDs from active_pids");
-
         let mut jstat_labels = metrics.jstat_labels.lock().await;
+        let mut pids_to_remove: Vec<String> = Vec::new();
+
         for (key, process_name) in &removed_pids {
             let parts: Vec<&str> = key.split('#').collect();
             if parts.len() != 2 {
@@ -160,6 +166,23 @@ async fn update_metrics(
             }
             let container = parts[0];
             let pid = parts[1];
+
+            // Check if the process is still running before marking as offline and removing metrics
+            if let Ok(pid_u32) = pid.parse::<u32>() {
+                if system.process(sysinfo::Pid::from(pid_u32 as usize)).is_some() {
+                    info!("Process {} still running, skipping removal", pid);
+                    continue;
+                }
+            }
+
+            // Set process_online_status to 0.0 for offline processes
+            metrics
+                .process_metrics
+                .process_online_status
+                .with_label_values(&[container, pid, process_name])
+                .set(0.0);
+
+            pids_to_remove.push(key.clone());
 
             // Remove CPU and Memory metrics
             let _ = metrics.process_metrics.cpu_usage.remove_label_values(&[
@@ -229,6 +252,10 @@ async fn update_metrics(
                 jstat_labels.remove(&key_jstat);
             }
         }
+        for key in pids_to_remove {
+            active_pids.remove(&key);
+        }
+        info!("Removed PIDs from active_pids");
     }
 
     // Update active_pids

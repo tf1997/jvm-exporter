@@ -54,7 +54,7 @@ async fn update_metrics(
         .config
         .read()
         .unwrap()
-        .detect_docker_processes
+        .detect_java_processes
         .unwrap_or_default()
     {
         host_processes = HashMap::new();
@@ -127,142 +127,82 @@ async fn update_metrics(
             }
         }
     }
-
-    // Create a unique key for each process as "container#pid"
-    let current_pids: HashMap<String, String> = all_processes
+    let current_process_names: HashSet<(String, String)> = all_processes
         .iter()
-        .map(|p| (format!("{}#{}", p.container, p.pid), p.process.clone()))
+        .map(|p| (p.container.clone(), p.process.clone()))
         .collect();
 
-    // Set process_online_status to 1.0 for all current processes
-    for proc_info in all_processes.iter() {
+    let previous_process_names: HashSet<(String, String)> = {
+        let active_pids_guard = metrics.active_pids.lock().await;
+        // 我们仍然需要 active_pids 来知道之前的状态，但我们只关心它们的名称
+        active_pids_guard
+            .iter()
+            .map(|(key, process_name)| {
+                let container = key.splitn(2, '#').next().unwrap_or("").to_string();
+                (container, process_name.clone())
+            })
+            .collect()
+    };
+    let offline_names = previous_process_names.difference(&current_process_names);
+    for (container, process_name) in offline_names {
+        info!(
+            "Service '{}' in '{}' is now fully offline. Setting status to 0.0.",
+            process_name, container
+        );
         metrics
             .process_metrics
             .process_online_status
-            .with_label_values(&[&proc_info.container, &proc_info.pid, &proc_info.process])
+            .with_label_values(&[container, process_name])
+            .set(0.0);
+    }
+    for (container, process_name) in &current_process_names {
+        metrics
+            .process_metrics
+            .process_online_status
+            .with_label_values(&[container, process_name])
             .set(1.0);
     }
-
-    // Identify removed PIDs
-    let removed_pids: Vec<(String, String)> = {
-        let active_pids = metrics.active_pids.lock().await;
-        active_pids
+    let current_pids_set: HashSet<(String, String, String)> = all_processes
+        .iter()
+        .map(|p| (p.container.clone(), p.pid.clone(), p.process.clone()))
+        .collect();
+    let previous_pids_set: HashSet<(String, String, String)> = {
+        let active_pids_guard = metrics.active_pids.lock().await;
+        active_pids_guard
             .iter()
-            .filter(|(key, _)| !current_pids.contains_key(*key))
-            .map(|(key, pname)| (key.clone(), pname.clone()))
+            .map(|(key, process_name)| {
+                let parts: Vec<&str> = key.splitn(2, '#').collect();
+                (
+                    parts[0].to_string(),
+                    parts[1].to_string(),
+                    process_name.clone(),
+                )
+            })
             .collect()
     };
+    let pids_to_remove = previous_pids_set.difference(&current_pids_set);
 
-    // Remove metrics for removed PIDs
-    if !removed_pids.is_empty() {
-        let mut active_pids = metrics.active_pids.lock().await;
-        let mut jstat_labels = metrics.jstat_labels.lock().await;
-        let mut pids_to_remove: Vec<String> = Vec::new();
-
-        for (key, process_name) in &removed_pids {
-            let parts: Vec<&str> = key.split('#').collect();
-            if parts.len() != 2 {
-                continue;
-            }
-            let container = parts[0];
-            let pid = parts[1];
-
-            // Check if the process is still running before marking as offline and removing metrics
-            if let Ok(pid_u32) = pid.parse::<u32>() {
-                if system.process(sysinfo::Pid::from(pid_u32 as usize)).is_some() {
-                    info!("Process {} still running, skipping removal", pid);
-                    continue;
-                }
-            }
-
-            // Set process_online_status to 0.0 for offline processes
-            metrics
-                .process_metrics
-                .process_online_status
-                .with_label_values(&[container, pid, process_name])
-                .set(0.0);
-
-            pids_to_remove.push(key.clone());
-
-            // Remove CPU and Memory metrics
-            let _ = metrics.process_metrics.cpu_usage.remove_label_values(&[
-                container,
-                pid,
-                process_name,
-            ]);
-            let _ = metrics.process_metrics.memory_usage.remove_label_values(&[
-                container,
-                pid,
-                process_name,
-            ]);
-            let _ = metrics
-                .process_metrics
-                .memory_usage_percentage
-                .remove_label_values(&[container, pid, process_name]);
-            let _ = metrics.process_metrics.start_time.remove_label_values(&[
-                container,
-                pid,
-                process_name,
-            ]);
-            let _ = metrics.process_metrics.up_time.remove_label_values(&[
-                container,
-                pid,
-                process_name,
-            ]);
-
-            let _ = metrics.process_metrics.open_file.remove_label_values(&[
-                container,
-                pid,
-                process_name,
-            ]);
-
-            let _ = metrics
-                .process_metrics
-                .open_file_limit
-                .remove_label_values(&[container, pid, process_name]);
-
-            for state in TCP_STATES {
-                let _ = metrics
-                    .process_metrics
-                    .tcp_connection_states
-                    .remove_label_values(&[container, pid, process_name, state]);
-            }
-
-            // Remove jstat metrics
-            for &command in JSTAT_COMMANDS.iter() {
-                let key_jstat = (
-                    command,
-                    container.to_string(),
-                    pid.to_string(),
-                    process_name.clone(),
-                );
-                if let Some(metric_names) = jstat_labels.get(&key_jstat) {
-                    if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command) {
-                        for metric_name in metric_names.iter() {
-                            let _ = metric.remove_label_values(&[
-                                container,
-                                pid,
-                                process_name,
-                                metric_name,
-                            ]);
-                        }
-                    }
-                }
-                // Remove recorded metric_names
-                jstat_labels.remove(&key_jstat);
-            }
-        }
-        for key in pids_to_remove {
-            active_pids.remove(&key);
-        }
-        info!("Removed PIDs from active_pids");
+    // Remove non-online-status metrics for restarted/truly offline processes
+    for (container, pid, process_name) in pids_to_remove {
+        remove_process_metrics(
+            &metrics,
+            &metrics.jstat_labels,
+            &container,
+            &pid,
+            &process_name,
+        )
+        .await;
     }
 
-    // Update active_pids
     {
-        let mut active_pids = metrics.active_pids.lock().await;
-        *active_pids = current_pids.clone();
+        let mut active_pids_locked = metrics.active_pids.lock().await;
+        active_pids_locked.clear();
+        for proc_info in all_processes.iter() {
+            let key = format!("{}#{}", proc_info.container, proc_info.pid);
+            active_pids_locked.insert(key, proc_info.process.clone());
+        }
     }
+
     // Update System metrics
     if let Err(e) = update_system_metrics(Arc::clone(&metrics), &mut system, &sockets).await {
         error!("Failed to update system metrics: {}", e);
@@ -339,10 +279,77 @@ async fn update_metrics(
                 .collect::<Vec<_>>()
         })
         .collect();
-
     futures::future::join_all(tasks).await;
 
     Ok(())
+}
+
+// Helper function to remove all metrics associated with a process
+async fn remove_process_metrics(
+    metrics: &Arc<Metrics>,
+    jstat_labels_mutex: &tokio::sync::Mutex<
+        HashMap<(&'static str, String, String, String), HashSet<String>>,
+    >,
+    container: &str,
+    pid: &str,
+    process_name: &str,
+) {
+    let mut jstat_labels = jstat_labels_mutex.lock().await;
+    let _ = metrics
+        .process_metrics
+        .cpu_usage
+        .remove_label_values(&[container, pid, process_name]);
+    let _ =
+        metrics
+            .process_metrics
+            .memory_usage
+            .remove_label_values(&[container, pid, process_name]);
+    let _ = metrics
+        .process_metrics
+        .memory_usage_percentage
+        .remove_label_values(&[container, pid, process_name]);
+    let _ = metrics
+        .process_metrics
+        .start_time
+        .remove_label_values(&[container, pid, process_name]);
+    let _ = metrics
+        .process_metrics
+        .up_time
+        .remove_label_values(&[container, pid, process_name]);
+    let _ = metrics
+        .process_metrics
+        .open_file
+        .remove_label_values(&[container, pid, process_name]);
+    let _ = metrics
+        .process_metrics
+        .open_file_limit
+        .remove_label_values(&[container, pid, process_name]);
+    // Do NOT remove process_online_status here. It will be handled explicitly.
+
+    for state in TCP_STATES {
+        let _ = metrics
+            .process_metrics
+            .tcp_connection_states
+            .remove_label_values(&[container, pid, process_name, state]);
+    }
+
+    for &command in JSTAT_COMMANDS.iter() {
+        let key_jstat = (
+            command,
+            container.to_string(),
+            pid.to_string(),
+            process_name.to_string(),
+        );
+        if let Some(metric_names) = jstat_labels.get(&key_jstat) {
+            if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command) {
+                for metric_name in metric_names.iter() {
+                    let _ =
+                        metric.remove_label_values(&[container, pid, process_name, metric_name]);
+                }
+            }
+        }
+        jstat_labels.remove(&key_jstat);
+    }
 }
 
 async fn fetch_and_update_jstat(

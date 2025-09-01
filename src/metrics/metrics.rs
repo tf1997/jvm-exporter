@@ -192,7 +192,7 @@ impl Metrics {
                     "process_online_status",
                     "Online status of the process (1 = online, 0 = offline)",
                 ),
-                &["container", "pid", "process_name"],
+                &["container", "process_name"],
             )
             .expect("Failed to create process_online_status GaugeVec");
             registry
@@ -521,6 +521,7 @@ impl Metrics {
         }
     }
 }
+#[derive(Clone)]
 pub struct ProcessInfo {
     pub(crate) container: String, // "host" or container ID
     pub(crate) pid: String,

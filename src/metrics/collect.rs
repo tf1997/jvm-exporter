@@ -115,10 +115,6 @@ async fn update_metrics(
                 .any(|re| re.is_match(&process_name))
                 && ppid == 1u32
             {
-                info!(
-                    "System process detected: PID={}, Process={}",
-                    pid, process_name
-                );
                 all_processes.push(ProcessInfo {
                     container: "system".to_string(),
                     pid: pid.to_string(),
@@ -134,7 +130,6 @@ async fn update_metrics(
 
     let previous_process_names: HashSet<(String, String)> = {
         let active_pids_guard = metrics.active_pids.lock().await;
-        // 我们仍然需要 active_pids 来知道之前的状态，但我们只关心它们的名称
         active_pids_guard
             .iter()
             .map(|(key, process_name)| {

@@ -167,9 +167,18 @@ pub fn setup_routes(
                                 Box::new(reply) as Box<dyn Reply>,
                             ))
                         }
+                        "http" => {
+                            let reply = warp::reply::with_status(
+                                probes::http_probe(metrics_handler_metrics, target_str).await,
+                                StatusCode::OK,
+                            );
+                            Ok::<(Box<dyn Reply>,), warp::Rejection>((
+                                Box::new(reply) as Box<dyn Reply>,
+                            ))
+                        }
                         _ => {
                             let reply = warp::reply::with_status(
-                                "Unknown module. Supported modules: tcp, ping".to_string(),
+                                "Unknown module. Supported modules: tcp, ping, http".to_string(),
                                 StatusCode::BAD_REQUEST,
                             );
                             Ok::<(Box<dyn Reply>,), warp::Rejection>((

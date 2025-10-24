@@ -71,6 +71,10 @@ pub(crate) struct ProbeMetrics {
     pub(crate) probe_tcp_duration_seconds: GaugeVec,
     pub(crate) probe_ping_success: GaugeVec,
     pub(crate) probe_ping_duration_seconds: GaugeVec,
+    pub(crate) probe_http_success: GaugeVec,
+    pub(crate) probe_http_duration_seconds: GaugeVec,
+    pub(crate) probe_http_status_code: GaugeVec,
+    pub(crate) probe_http_ssl_earliest_cert_expiry: GaugeVec,
 }
 
 impl Metrics {
@@ -476,11 +480,54 @@ impl Metrics {
                 .register(Box::new(probe_ping_duration_seconds.clone()))
                 .expect("Failed to register probe_ping_duration_seconds metric");
 
+            let probe_http_success = GaugeVec::new(
+                prometheus::Opts::new("probe_http_success", "HTTP probe success status"),
+                &["target"],
+            )
+            .expect("Failed to create probe_http_success GaugeVec");
+            registry
+                .register(Box::new(probe_http_success.clone()))
+                .expect("Failed to register probe_http_success metric");
+
+            let probe_http_duration_seconds = GaugeVec::new(
+                prometheus::Opts::new(
+                    "probe_http_duration_seconds",
+                    "Duration of HTTP probe in seconds",
+                ),
+                &["target"],
+            )
+            .expect("Failed to create probe_http_duration_seconds GaugeVec");
+            registry
+                .register(Box::new(probe_http_duration_seconds.clone()))
+                .expect("Failed to register probe_http_duration_seconds metric");
+
+            let probe_http_status_code = GaugeVec::new(
+                prometheus::Opts::new("probe_http_status_code", "HTTP probe status code"),
+                &["target"],
+            )
+            .expect("Failed to create probe_http_status_code GaugeVec");
+            registry
+                .register(Box::new(probe_http_status_code.clone()))
+                .expect("Failed to register probe_http_status_code metric");
+
+            let probe_http_ssl_earliest_cert_expiry = GaugeVec::new(
+                prometheus::Opts::new("probe_http_ssl_earliest_cert_expiry", "Earliest SSL certificate expiry in seconds"),
+                &["target"],
+            )
+            .expect("Failed to create probe_http_ssl_earliest_cert_expiry GaugeVec");
+            registry
+                .register(Box::new(probe_http_ssl_earliest_cert_expiry.clone()))
+                .expect("Failed to register probe_http_ssl_earliest_cert_expiry metric");
+
             ProbeMetrics {
                 probe_tcp_success,
                 probe_tcp_duration_seconds,
                 probe_ping_success,
                 probe_ping_duration_seconds,
+                probe_http_success,
+                probe_http_duration_seconds,
+                probe_http_status_code,
+                probe_http_ssl_earliest_cert_expiry,
             }
         };
         let version = GaugeVec::new(

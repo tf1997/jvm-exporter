@@ -7,6 +7,133 @@ use crate::metrics::metrics::Metrics;
 use std::sync::Arc;
 use std::time::Instant;
 use prometheus::{Registry, GaugeVec, Encoder, TextEncoder};
+use reqwest;
+use url::Url;
+use ssl_expiration::SslExpiration;
+
+pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
+    let timer = Instant::now();
+    let parsed_url = match Url::parse(&target) {
+        Ok(url) => url,
+        Err(e) => {
+            error!("Invalid URL for http probe: {}. Error: {:?}", target, e);
+            return format!("# Invalid URL: {}", target);
+        }
+    };
+
+    let client = reqwest::Client::new();
+    let result = client.get(parsed_url.clone()).send().await;
+
+    let (success, status_code) = match result {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                (1.0, status.as_u16() as f64)
+            } else {
+                (0.0, status.as_u16() as f64)
+            }
+        },
+        Err(e) => {
+            error!("HTTP probe to {} failed: {}", target, e);
+            (0.0, 0.0)
+        },
+    };
+
+    let expiry_seconds = if parsed_url.scheme() == "https" {
+        let domain = parsed_url.host_str().unwrap_or_default();
+        match SslExpiration::from_domain_name(domain) {
+            Ok(expiration) => {
+                let days_left = expiration.days();
+                if days_left > 0 {
+                    (days_left * 86400) as f64
+                } else {
+                    0.0
+                }
+            },
+            Err(e) => {
+                error!("Failed to get SSL certificate expiration for {}: {}", domain, e);
+                0.0
+            }
+        }
+    } else {
+        -1.0 // Not a https url
+    };
+
+    let duration = timer.elapsed().as_secs_f64();
+
+    // Update global metrics
+    metrics
+        .probe_metrics
+        .probe_http_success
+        .with_label_values(&[&target])
+        .set(success);
+    metrics
+        .probe_metrics
+        .probe_http_duration_seconds
+        .with_label_values(&[&target])
+        .set(duration);
+    metrics
+        .probe_metrics
+        .probe_http_status_code
+        .with_label_values(&[&target])
+        .set(status_code);
+    metrics
+        .probe_metrics
+        .probe_http_ssl_earliest_cert_expiry
+        .with_label_values(&[&target])
+        .set(expiry_seconds);
+
+    // Create a new registry for probe-specific metrics
+    let registry = Registry::new();
+
+    let probe_http_success_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_http_success", "HTTP probe success status"),
+        &["target"],
+    )
+    .expect("Failed to create probe_http_success GaugeVec for probe");
+    registry.register(Box::new(probe_http_success_local.clone())).expect("Failed to register probe_http_success_local metric");
+
+    let probe_http_duration_seconds_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_http_duration_seconds", "Duration of HTTP probe in seconds"),
+        &["target"],
+    )
+    .expect("Failed to create probe_http_duration_seconds GaugeVec for probe");
+    registry.register(Box::new(probe_http_duration_seconds_local.clone())).expect("Failed to register probe_http_duration_seconds_local metric");
+
+    let probe_http_status_code_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_http_status_code", "HTTP probe status code"),
+        &["target"],
+    )
+    .expect("Failed to create probe_http_status_code GaugeVec for probe");
+    registry.register(Box::new(probe_http_status_code_local.clone())).expect("Failed to register probe_http_status_code_local metric");
+
+    let probe_http_ssl_earliest_cert_expiry_local = GaugeVec::new(
+        prometheus::Opts::new("local_probe_http_ssl_earliest_cert_expiry", "Earliest SSL certificate expiry in seconds"),
+        &["target"],
+    )
+    .expect("Failed to create probe_http_ssl_earliest_cert_expiry_local GaugeVec for probe");
+    registry.register(Box::new(probe_http_ssl_earliest_cert_expiry_local.clone())).expect("Failed to register probe_ssl_earliest_cert_expiry_local metric");
+
+    probe_http_success_local
+        .with_label_values(&[&target])
+        .set(success);
+    probe_http_duration_seconds_local
+        .with_label_values(&[&target])
+        .set(duration);
+    probe_http_status_code_local
+        .with_label_values(&[&target])
+        .set(status_code);
+    probe_http_ssl_earliest_cert_expiry_local
+        .with_label_values(&[&target])
+        .set(expiry_seconds);
+
+    let encoder = TextEncoder::new();
+    let metric_families = registry.gather();
+    let mut buffer = Vec::new();
+    encoder.encode(&metric_families, &mut buffer).expect("Failed to encode probe metrics");
+
+    String::from_utf8(buffer).expect("Failed to convert probe metrics buffer to String")
+}
 
 pub async fn tcp_probe(metrics: Arc<Metrics>, host: String, port: u16) -> String {
     let timer = Instant::now();

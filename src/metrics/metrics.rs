@@ -1,5 +1,5 @@
 use crate::config::Config;
-use prometheus::{GaugeVec, IntGaugeVec, Registry};
+use prometheus::{CounterVec, GaugeVec, IntGaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -75,6 +75,7 @@ pub(crate) struct ProbeMetrics {
     pub(crate) probe_http_duration_seconds: GaugeVec,
     pub(crate) probe_http_status_code: GaugeVec,
     pub(crate) probe_http_ssl_earliest_cert_expiry: GaugeVec,
+    pub(crate) probe_http_phase_failures_total: CounterVec,
 }
 
 impl Metrics {
@@ -519,6 +520,15 @@ impl Metrics {
                 .register(Box::new(probe_http_ssl_earliest_cert_expiry.clone()))
                 .expect("Failed to register probe_http_ssl_earliest_cert_expiry metric");
 
+            let probe_http_phase_failures_total = CounterVec::new(
+                prometheus::Opts::new("probe_http_phase_failures_total", "Total number of http probe failures by phase"),
+                &["target", "phase"],
+            )
+            .expect("Failed to create probe_http_phase_failures_total CounterVec");
+            registry
+                .register(Box::new(probe_http_phase_failures_total.clone()))
+                .expect("Failed to register probe_http_phase_failures_total metric");
+
             ProbeMetrics {
                 probe_tcp_success,
                 probe_tcp_duration_seconds,
@@ -528,6 +538,7 @@ impl Metrics {
                 probe_http_duration_seconds,
                 probe_http_status_code,
                 probe_http_ssl_earliest_cert_expiry,
+                probe_http_phase_failures_total,
             }
         };
         let version = GaugeVec::new(

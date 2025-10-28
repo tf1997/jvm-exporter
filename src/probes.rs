@@ -6,10 +6,77 @@ use ping;
 use crate::metrics::metrics::Metrics;
 use std::sync::Arc;
 use std::time::Instant;
-use prometheus::{Registry, GaugeVec, Encoder, TextEncoder};
+use prometheus::{Registry, GaugeVec, Encoder, TextEncoder, CounterVec};
 use reqwest;
 use url::Url;
-use ssl_expiration::SslExpiration;
+use crate::collectors::ssl::get_cert_expiry_seconds;
+
+async fn run_diagnostic_probes(metrics: &Arc<Metrics>, local_failures_counter: &CounterVec, target: &str, parsed_url: &Url) {
+    let domain = match parsed_url.host_str() {
+        Some(h) => h,
+        None => {
+            metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "dns"]).inc();
+            local_failures_counter.with_label_values(&[target, "dns"]).inc();
+            return;
+        }
+    };
+    let port = parsed_url.port_or_known_default().unwrap_or(80);
+
+    // 1. DNS Probe
+    match tokio::net::lookup_host((domain, port)).await {
+        Ok(mut addrs) => {
+            if addrs.next().is_none() {
+                error!("DNS probe for {} failed: No addresses found", domain);
+                metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "dns"]).inc();
+                local_failures_counter.with_label_values(&[target, "dns"]).inc();
+                return;
+            }
+        }
+        Err(e) => {
+            error!("DNS probe for {} failed: {}", domain, e);
+            metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "dns"]).inc();
+            local_failures_counter.with_label_values(&[target, "dns"]).inc();
+            return;
+        }
+    }
+
+    // 2. TCP Probe
+    let address = format!("{}:{}", domain, port);
+    if let Err(e) = timeout(Duration::from_secs(2), TcpStream::connect(&address)).await {
+        error!("TCP connect probe to {} failed: {:?}", address, e);
+        metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "tcp"]).inc();
+        local_failures_counter.with_label_values(&[target, "tcp"]).inc();
+        return;
+    }
+
+    // 3. TLS Probe (if applicable)
+    if parsed_url.scheme() == "https" {
+        let domain_clone = domain.to_string();
+        let probe_result = tokio::task::spawn_blocking(move || {
+            get_cert_expiry_seconds(&domain_clone)
+        }).await;
+
+        match probe_result {
+            Ok(Ok(_)) => (), // Success
+            Ok(Err(e)) => {
+                error!("TLS handshake probe to {} failed: {}", domain, e);
+                metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "tls"]).inc();
+                local_failures_counter.with_label_values(&[target, "tls"]).inc();
+                return;
+            },
+            Err(e) => {
+                error!("TLS handshake probe task failed for {}: {}", domain, e);
+                metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "tls"]).inc();
+                local_failures_counter.with_label_values(&[target, "tls"]).inc();
+                return;
+            }
+        }
+    }
+
+    // 4. If all above passed, it's an HTTP-level failure
+    metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[target, "http"]).inc();
+    local_failures_counter.with_label_values(&[target, "http"]).inc();
+}
 
 pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
     let timer = Instant::now();
@@ -17,12 +84,13 @@ pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
         Ok(url) => url,
         Err(e) => {
             error!("Invalid URL for http probe: {}. Error: {:?}", target, e);
+            metrics.probe_metrics.probe_http_phase_failures_total.with_label_values(&[&target, "http"]).inc();
             return format!("# Invalid URL: {}", target);
         }
     };
 
     let client = reqwest::Client::new();
-    let result = client.get(parsed_url.clone()).send().await;
+    let result = client.get(parsed_url.clone()).timeout(std::time::Duration::from_secs(5)).send().await;
 
     let (success, status_code) = match result {
         Ok(response) => {
@@ -39,19 +107,35 @@ pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
         },
     };
 
+    // Create a new registry for probe-specific metrics
+    let registry = Registry::new();
+
+    let probe_http_phase_failures_total_local = CounterVec::new(
+        prometheus::Opts::new("local_probe_http_phase_failures_total", "Total number of http probe failures by phase"),
+        &["target", "phase"],
+    )
+    .expect("Failed to create local_probe_http_phase_failures_total CounterVec");
+    registry.register(Box::new(probe_http_phase_failures_total_local.clone())).expect("Failed to register local_probe_http_phase_failures_total metric");
+
+    if success == 0.0 {
+        run_diagnostic_probes(&metrics, &probe_http_phase_failures_total_local, &target, &parsed_url).await;
+    }
+
     let expiry_seconds = if parsed_url.scheme() == "https" {
-        let domain = parsed_url.host_str().unwrap_or_default();
-        match SslExpiration::from_domain_name(domain) {
-            Ok(expiration) => {
-                let days_left = expiration.days();
-                if days_left > 0 {
-                    (days_left * 86400) as f64
-                } else {
-                    0.0
-                }
+        let domain = parsed_url.host_str().unwrap_or_default().to_string();
+        let domain_clone = domain.clone();
+        let cert_info_result = tokio::task::spawn_blocking(move || {
+            get_cert_expiry_seconds(&domain_clone)
+        }).await;
+
+        match cert_info_result {
+            Ok(Ok(seconds)) => seconds,
+            Ok(Err(e)) => {
+                error!("Failed to get SSL certificate expiration for {}: {}", &domain, e);
+                0.0
             },
             Err(e) => {
-                error!("Failed to get SSL certificate expiration for {}: {}", domain, e);
+                error!("Failed to get SSL certificate expiration task for {}: {}", &domain, e);
                 0.0
             }
         }
@@ -83,9 +167,6 @@ pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
         .with_label_values(&[&target])
         .set(expiry_seconds);
 
-    // Create a new registry for probe-specific metrics
-    let registry = Registry::new();
-
     let probe_http_success_local = GaugeVec::new(
         prometheus::Opts::new("local_probe_http_success", "HTTP probe success status"),
         &["target"],
@@ -111,7 +192,7 @@ pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
         prometheus::Opts::new("local_probe_http_ssl_earliest_cert_expiry", "Earliest SSL certificate expiry in seconds"),
         &["target"],
     )
-    .expect("Failed to create probe_http_ssl_earliest_cert_expiry_local GaugeVec for probe");
+    .expect("Failed to create probe_http_ssl_earliest_cert_expiry_local GaugeVec");
     registry.register(Box::new(probe_http_ssl_earliest_cert_expiry_local.clone())).expect("Failed to register probe_ssl_earliest_cert_expiry_local metric");
 
     probe_http_success_local

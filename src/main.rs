@@ -19,6 +19,7 @@ mod metrics {
 mod collectors {
     pub mod network_info;
     pub mod disk;
+    pub mod ssl;
 }
 
 use clap;
@@ -267,4 +268,3 @@ fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
     log::info!("Logs are being written to: {:?}", log_file_path);
     log::debug!("Log4rs initialized successfully.");
 }
-

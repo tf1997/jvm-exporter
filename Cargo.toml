@@ -46,7 +46,8 @@ winreg = "=0.50.0"
 winapi = { version = "=0.3.9", features = ["processthreadsapi", "winbase"] }
 windows-sys = { version = "0.52.0", features = ["Win32_System_SystemInformation",
 "Win32_NetworkManagement_IpHelper",
-"Win32_Foundation","Win32_NetworkManagement_Ndis","Win32_Networking_WinSock"] }
+"Win32_Foundation","Win32_NetworkManagement_Ndis","Win32_Networking_WinSock",
+"Win32_System_EventLog"] }
 
 [profile.release]
 strip = "symbols"

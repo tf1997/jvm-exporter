@@ -6,6 +6,8 @@ mod updater;
 mod installer;
 mod probes;
 mod shutdown;
+#[cfg(target_os = "windows")]
+mod windows_panic;
 mod ui{
     pub mod home;
     pub mod update;
@@ -35,6 +37,9 @@ use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 async fn main() {
+    #[cfg(target_os = "windows")]
+    windows_panic::setup_panic_hook();
+
     let app_name = env!("CARGO_PKG_NAME");
     
     let target_dir = dirs::data_dir()

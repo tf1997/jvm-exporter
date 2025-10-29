@@ -5,6 +5,7 @@ mod config;
 mod updater;
 mod installer;
 mod probes;
+mod shutdown;
 mod ui{
     pub mod home;
     pub mod update;
@@ -149,6 +150,8 @@ async fn main() {
     
     #[cfg(target_os = "windows")]
     {
+        shutdown::prevent_shutdown();
+
         use winapi::um::processthreadsapi::{GetCurrentProcess, SetPriorityClass};
         use winapi::um::winbase::{BELOW_NORMAL_PRIORITY_CLASS};
         unsafe {

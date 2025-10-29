@@ -90,7 +90,10 @@ pub async fn http_probe(metrics: Arc<Metrics>, target: String) -> String {
     };
 
     let client = reqwest::Client::new();
-    let result = client.get(parsed_url.clone()).timeout(std::time::Duration::from_secs(5)).send().await;
+    let result = client.get(parsed_url.clone())
+        .timeout(std::time::Duration::from_secs(5))
+        .header("user-agent", "ferris-watch-mozilla/5.0 (compatible; FerrisWatch/1.0; +")
+        .send().await;
 
     let (success, status_code) = match result {
         Ok(response) => {

@@ -1,7 +1,7 @@
 use rustls::{ClientConfig, ClientConnection, Stream};
 use rustls::ServerName;
 use std::io::Write;
-use std::net::TcpStream as StdTcpStream;
+use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::sync::Arc as StdArc;
 use anyhow::Context;
 use std::time::SystemTime;
@@ -28,7 +28,9 @@ pub fn get_cert_expiry_seconds(domain: &str) -> anyhow::Result<f64> {
     let mut conn = ClientConnection::new(StdArc::new(config), server_name)?;
     let port = 443;
     let addr = format!("{}:{}", domain, port);
-    let mut sock = StdTcpStream::connect_timeout(&addr.parse()?, std::time::Duration::from_secs(3))?;
+    let mut socket_addrs = addr.to_socket_addrs()?;
+    let socket_addr = socket_addrs.next().ok_or_else(|| anyhow::anyhow!("invalid DNS name"))?;
+    let mut sock = StdTcpStream::connect_timeout(&socket_addr, std::time::Duration::from_secs(3))?;
     let mut stream = Stream::new(&mut conn, &mut sock);
 
     // Complete the handshake by writing something and flushing.

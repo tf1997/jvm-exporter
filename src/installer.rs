@@ -48,7 +48,16 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         // Copy the new executable to the secure directory, overwriting if it exists
         info!("new_exe_path: {}", new_exe_path.display());
         info!("target_exe_path: {}", target_exe_path.display());
-        kill_process_on_port(29090)?;
+        // kill_process_on_port(29090)?;
+        if let Err(e) = installer::kill_process_and_parent_on_port(29090) {
+            error!(
+                "Failed to kill the process tree, install may fail: {}",
+                e
+            );
+        } else {
+            info!("Process tree terminated successfully.");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         let max_retries = 5;
         let retry_delay = std::time::Duration::from_millis(500);
@@ -99,12 +108,15 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
 
         // Run the program immediately after configuring auto-start
         info!("Starting application immediately...");
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("") // Title argument, can be empty
-            .arg(&target_exe_str)
-            .arg("--no-ui") // Pass --no-ui to the launched instance
+        use crate::WORKER_ENV_VAR;
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        Command::new(&target_exe_str)
+            .arg("--no-ui")
+            .env_remove(WORKER_ENV_VAR)
+            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
             .spawn()?;
         info!("Application started.");
         Ok(())
@@ -355,6 +367,77 @@ pub fn kill_process_on_port(port: u16) -> Result<(), Box<dyn std::error::Error>>
     }
     if !killed {
         log::info!("No process killed for port {}.", port);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
+    use sysinfo::{System, Pid};
+
+    let pid = match find_pid_by_port(port)? {
+        Some(p) => p,
+        None => {
+            info!("No process found on port {}, nothing to kill.", port);
+            return Ok(());
+        }
+    };
+
+    let mut system = System::new_all();
+    system.refresh_all();
+
+    let mut pid_to_kill = pid;
+    let mut use_tree_kill = false;
+
+    if let Some(process) = system.process(Pid::from_u32(pid)) {
+        if let Some(parent_pid) = process.parent() {
+            if let Some(parent_process) = system.process(parent_pid) {
+                if parent_process.name()..to_string_lossy().contains(env!("CARGO_PKG_NAME")) {
+                    info!("Found guardian process with PID {}. Terminating the entire process tree.", parent_pid);
+                    pid_to_kill = parent_pid.as_u32();
+                    use_tree_kill = true;
+                }
+            }
+        }
+    }
+
+    let mut command = Command::new("taskkill");
+    command.arg("/F");
+    if use_tree_kill {
+        command.arg("/T");
+    }
+    command.arg("/PID");
+    command.arg(pid_to_kill.to_string());
+
+    info!("Executing: {:?}", command);
+    
+    let output = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .context(format!("Failed to execute taskkill for PID {}", pid_to_kill))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !output.status.success() {
+        if !stderr.contains("not found") {
+            error!("Taskkill stdout: {}", stdout.trim());
+            error!("Taskkill stderr: {}", stderr.trim());
+            return Err(anyhow!(
+                  "taskkill command failed for PID {}. Status: {}. Error: {}",
+                    pid_to_kill,
+                    output.status,
+                    stderr.trim()
+               ));
+        } else {
+            info!("Taskkill info: Process with PID {} was not found (already terminated).", pid_to_kill);
+        }
+    } else {
+        info!("Taskkill success message: {}", stdout.trim());
+        if !stderr.is_empty() {
+            info!("Taskkill stderr message (often informational): {}", stderr.trim());
+        }
     }
     Ok(())
 }

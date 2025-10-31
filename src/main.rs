@@ -34,11 +34,66 @@ use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
 use dirs;
 use std::sync::{Arc, RwLock};
+use std::env;
+#[cfg(target_os = "windows")]
+use {
+    std::time::Duration,
+    tokio::time::sleep,
+    std::process::Command,
+};
 
+pub const WORKER_ENV_VAR: &str = "_IS_WORKER_PROCESS";
+
+#[cfg(target_os = "windows")]
 #[tokio::main]
 async fn main() {
     #[cfg(target_os = "windows")]
     windows_panic::setup_panic_hook();
+
+    let args: Vec<String> = env::args().collect();
+
+    // Guardian logic is only active for "--no-ui" runs.
+    if args.contains(&"--no-ui".to_string()) {
+        if env::var(WORKER_ENV_VAR).is_err() {
+            // It's a --no-ui run and not a worker, so become a guardian.
+            run_guardian().await;
+        } else {
+            // It's a worker process launched by the guardian.
+            run_worker().await;
+        }
+    } else {
+        // For any other case (no args, --install-ui, etc.), just run the logic directly.
+        run_worker().await;
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::main]
+async fn main() {
+    run_worker().await;
+}
+
+#[cfg(target_os = "windows")]
+async fn run_guardian() {
+    let exe = env::current_exe().expect("Failed to get current executable path");
+    let args: Vec<String> = env::args().skip(1).collect(); // Pass all args except the program name
+
+    loop {
+        info!("Guardian: Starting worker process...");
+        let mut child = Command::new(&exe)
+            .args(&args)
+            .env(WORKER_ENV_VAR, "1")
+            .spawn()
+            .expect("Failed to spawn worker process");
+
+        let status = child.wait().expect("Failed to wait on worker process");
+
+        error!("Guardian: Worker process exited with status: {}. Restarting...", status);
+        sleep(Duration::from_secs(5)).await; // Wait 5 seconds before restarting
+    }
+}
+
+async fn run_worker() {
 
     let app_name = env!("CARGO_PKG_NAME");
     
@@ -76,6 +131,9 @@ async fn main() {
 
     init_logger(app_name, Arc::clone(&config));
 
+    if env::var(WORKER_ENV_VAR).is_ok() {
+        info!("Worker: Process started.");
+    }
     info!("Using config file at: {:?}", config_path);
     info!("Using config is: {:?}", config);
 
@@ -155,8 +213,6 @@ async fn main() {
     
     #[cfg(target_os = "windows")]
     {
-        shutdown::prevent_shutdown();
-
         use winapi::um::processthreadsapi::{GetCurrentProcess, SetPriorityClass};
         use winapi::um::winbase::{BELOW_NORMAL_PRIORITY_CLASS};
         unsafe {

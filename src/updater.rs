@@ -188,8 +188,23 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                         "Attempting to run new executable: {:?}",
                         downloaded_file_path
                     );
-                    let mut command = std::process::Command::new(&downloaded_file_path);
-                    command.arg("--auto-install");
+                    #[cfg(target_os = "windows")]
+                    let mut command = {
+                        use std::os::windows::process::CommandExt;
+                        const DETACHED_PROCESS: u32 = 0x00000008;
+                        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+                        let mut cmd = Command::new(&downloaded_file_path);
+                        cmd.arg("--auto-install");
+                        cmd.creation_flags(CREATE_NEW_CONSOLE | DETACHED_PROCESS);
+                        cmd
+                    };
+
+                    #[cfg(not(target_os = "windows"))]
+                    let mut command = {
+                        let mut cmd = std::process::Command::new(&downloaded_file_path);
+                        cmd.arg("--auto-install");
+                        cmd
+                    };
 
                     #[cfg(unix)]
                     {
@@ -209,6 +224,14 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                             );
                             #[cfg(target_os = "windows")]
                             {
+                                if let Err(e) = crate::installer::kill_process_and_parent_on_port(29090) {
+                                    error!(
+                                        "Failed to kill the process tree, update may fail: {}",
+                                        e
+                                    );
+                                } else {
+                                    info!("Process tree terminated successfully.");
+                                }
                                 std::process::exit(0);
                             }
                         }
@@ -342,6 +365,25 @@ pub fn is_windows7_or_lower() -> Option<bool> {
     // So, we can safely check if the version is less than or equal to 6.1.
     // All versions below Windows 10 are considered Win7.
     Some(major < 10)
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "ntdll")]
+extern "system" {
+    fn RtlGetVersion(lpVersionInformation: *mut OSVERSIONINFOW) -> i32;
+}
+#[cfg(target_os = "windows")]
+fn get_windows_version() -> Option<(u32, u32)> {
+    unsafe {
+        let mut info: OSVERSIONINFOW = mem::zeroed();
+        info.dwOSVersionInfoSize = mem::size_of::<OSVERSIONINFOW>() as u32;
+
+        if RtlGetVersion(&mut info) == 0 {
+            Some((info.dwMajorVersion, info.dwMinorVersion))
+        } else {
+            None
+        }
+    }
 }
 
 pub fn get_real_os_arch() -> String {

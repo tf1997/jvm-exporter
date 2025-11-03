@@ -47,8 +47,6 @@ pub const WORKER_ENV_VAR: &str = "_IS_WORKER_PROCESS";
 #[cfg(target_os = "windows")]
 #[tokio::main]
 async fn main() {
-    #[cfg(target_os = "windows")]
-    windows_panic::setup_panic_hook();
 
     let args: Vec<String> = env::args().collect();
 
@@ -94,6 +92,9 @@ async fn run_guardian() {
 }
 
 async fn run_worker() {
+
+    #[cfg(target_os = "windows")]
+    windows_panic::setup_panic_hook();
 
     let app_name = env!("CARGO_PKG_NAME");
     

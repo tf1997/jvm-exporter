@@ -96,6 +96,21 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
 
         key.set_value(app_name, &format!("\"{}\" --no-ui", target_exe_str))?;
 
+        let old_path = "Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run";
+        if let Ok(key) = hklm.open_subkey_with_flags(old_path, KEY_SET_VALUE) {
+            // Check if the value exists before trying to delete it.
+            if key.get_value::<String, _>(app_name).is_ok() {
+                if key.delete_value(app_name).is_ok() {
+                    info!("Removed old auto-start entry from WOW6432Node.");
+                } else {
+                    warn!("Found old auto-start entry in WOW6432Node but failed to remove it.");
+                }
+            }
+        } else {
+            warn!("Could not open old registry path to clean up. This might be a permissions issue, or the path doesn't exist.");
+
+        }
+
         // Optionally, run the program immediately after configuring auto-start
         // This might not be desired for an "installation" flow, as the current app might still be running.
         // For now, we'll just configure and let the user restart or the system auto-start.

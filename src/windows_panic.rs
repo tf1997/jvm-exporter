@@ -16,7 +16,6 @@ pub fn setup_panic_hook() {
     let app_name = env!("CARGO_PKG_NAME");
     std::panic::set_hook(Box::new(move |panic_info| {
         let message = format!("A panic occurred in {}: {:?}", app_name, panic_info);
-        eprintln!("{}", message); // Also print to stderr for visibility
 
         // Manually report the event using low-level Windows API
         unsafe {
@@ -40,8 +39,6 @@ pub fn setup_panic_hook() {
                 );
 
                 DeregisterEventSource(event_source);
-            } else {
-                eprintln!("Failed to register event source with Windows.");
             }
         }
     }));

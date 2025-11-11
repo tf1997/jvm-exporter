@@ -75,9 +75,7 @@ pub fn configure_auto_start() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine a secure directory for the executable
     // C:\ProgramData is a good choice for application-wide data and executables
-    let target_dir = dirs::data_dir()
-        .ok_or("Could not find a suitable data directory for Windows.")?
-        .join(app_name);
+    let target_dir = crate::updater::get_app_data_dir().unwrap();
     let target_exe_path = target_dir.join(current_exe_path.file_name().ok_or("Invalid executable file name")?);
 
     // Create the target directory if it doesn't exist
@@ -221,9 +219,7 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     println!("Auto-start entry removed from Windows Registry.");
 
     // Optionally, remove the copied executable
-    let target_dir = dirs::data_dir()
-        .ok_or("Could not find a suitable data directory for Windows.")?
-        .join(app_name);
+    let target_dir = crate::updater::get_app_data_dir().unwrap();
     let current_exe_path = std::env::current_exe()?;
     let target_exe_path = target_dir.join(current_exe_path.file_name().ok_or("Invalid executable file name")?);
 

@@ -22,11 +22,8 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
 
     #[cfg(target_os = "windows")]
     {
-
         let current_exe_path = std::env::current_exe()?;
-        let target_dir = dirs::data_dir()
-            .ok_or("Could not find a suitable data directory for Windows.")?
-            .join(app_name);
+        let target_dir = crate::updater::get_app_data_dir()?;
 
         let mut exe_file_name = current_exe_path
             .file_name()

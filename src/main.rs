@@ -32,7 +32,6 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config as Log4rsConfig, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use std::fs;
-use dirs;
 use std::sync::{Arc, RwLock};
 use std::env;
 #[cfg(target_os = "windows")]
@@ -100,12 +99,8 @@ async fn run_worker() {
 
     #[cfg(target_os = "windows")]
     windows_panic::setup_panic_hook();
-
-    let app_name = env!("CARGO_PKG_NAME");
     
-    let target_dir = dirs::data_dir()
-            .ok_or("Could not find a suitable data directory for Windows.").unwrap()
-            .join(app_name);
+    let target_dir = crate::updater::get_app_data_dir().unwrap();
     let config_path = target_dir.join("config.yaml");
     
     let mut config = Config::new(config_path.to_str().unwrap()).unwrap_or_else(|e| {
@@ -135,7 +130,7 @@ async fn run_worker() {
 
     let config = Arc::new(RwLock::new(config));
 
-    init_logger(app_name, Arc::clone(&config));
+    init_logger(Arc::clone(&config));
 
     if env::var(WORKER_ENV_VAR).is_ok() {
         info!("Worker: Process started.");
@@ -286,9 +281,10 @@ async fn run_worker() {
 }
 
 
-fn init_logger(app_name: &str, config: Arc<RwLock<Config>>) {
-    let log_dir = std::env::temp_dir()
-        .join(app_name)
+fn init_logger(config: Arc<RwLock<Config>>) {
+    let log_dir = crate::updater::get_app_data_dir()
+        .unwrap()
+        .join("temp")
         .join("logs");
 
     let log_file_path = log_dir.join("ferris-watch.log");

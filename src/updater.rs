@@ -293,13 +293,21 @@ fn load_or_generate_today_minute() -> u32 {
     minute
 }
 
-// Function to get the application's data directory
+#[cfg(not(target_os = "windows"))]
 pub fn get_app_data_dir() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     let data_dir = dirs::data_dir()
         .ok_or("Could not find data directory")?
         .join(env!("CARGO_PKG_NAME")); // Use package name for app-specific directory
 
-    // Ensure the directory exists
+    std::fs::create_dir_all(&data_dir)?;
+    Ok(data_dir)
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_app_data_dir() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    let program_data = std::env::var("PROGRAMDATA")
+        .map_err(|e| format!("Could not find ProgramData directory: {}", e))?;
+    let data_dir = std::path::PathBuf::from(program_data).join(env!("CARGO_PKG_NAME"));
     std::fs::create_dir_all(&data_dir)?;
     Ok(data_dir)
 }

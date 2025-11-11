@@ -192,17 +192,21 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                     let mut command = {
                         use std::os::windows::process::CommandExt;
                         const DETACHED_PROCESS: u32 = 0x00000008;
-                        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
                         let mut cmd = Command::new(&downloaded_file_path);
                         cmd.arg("--auto-install");
-                        cmd.creation_flags(CREATE_NEW_CONSOLE | DETACHED_PROCESS);
+                        cmd.creation_flags(DETACHED_PROCESS);
                         cmd
                     };
 
                     #[cfg(not(target_os = "windows"))]
                     let mut command = {
-                        let mut cmd = std::process::Command::new(&downloaded_file_path);
-                        cmd.arg("--auto-install");
+                        let mut cmd = std::process::Command::new("sh");
+                        let shell_command = format!(
+                            "nohup {} --auto-install > /dev/null 2>&1 &", 
+                            downloaded_file_path.to_string_lossy()
+                        );
+
+                        cmd.arg("-c").arg(shell_command);
                         cmd
                     };
 
@@ -224,7 +228,9 @@ pub async fn schedule_daily_update_check(config_for_daily_update: Arc<RwLock<Con
                             );
                             #[cfg(target_os = "windows")]
                             {
-                                if let Err(e) = crate::installer::kill_process_and_parent_on_port(29090) {
+                                if let Err(e) =
+                                    crate::installer::kill_process_and_parent_on_port(29090)
+                                {
                                     error!(
                                         "Failed to kill the process tree, update may fail: {}",
                                         e
@@ -341,20 +347,6 @@ fn get_os_version() -> String {
 
 #[cfg(target_os = "windows")]
 pub fn is_windows7_or_lower() -> Option<bool> {
-    // The OSVERSIONINFOW struct must be properly initialized, especially the `dwOSVersionInfoSize` field.
-    let mut version_info: OSVERSIONINFOW = unsafe { mem::zeroed() };
-    version_info.dwOSVersionInfoSize = mem::size_of::<OSVERSIONINFOW>() as u32;
-
-    // Call the Windows API function `GetVersionExW`.
-    // This is in an `unsafe` block because it's a Foreign Function Interface (FFI) call.
-    if unsafe { GetVersionExW(&mut version_info) } == 0 {
-        // The API call failed.
-        return None;
-    }
-
-    let major = version_info.dwMajorVersion;
-    let minor = version_info.dwMinorVersion;
-
     // --- Version Number Logic ---
     // Windows 7:           Major = 6, Minor = 1
     // Windows 8:           Major = 6, Minor = 2
@@ -364,7 +356,10 @@ pub fn is_windows7_or_lower() -> Option<bool> {
     // Even without a manifest, on a Win 8+ system, `GetVersionExW` will return at least 6.2.
     // So, we can safely check if the version is less than or equal to 6.1.
     // All versions below Windows 10 are considered Win7.
-    Some(major < 10)
+    if let Some((major, minor)) = get_windows_version() {
+        return Some(major < 10);
+    }
+    return None;
 }
 
 #[cfg(target_os = "windows")]

@@ -149,6 +149,7 @@ After=network.target
 
 [Service]
 Type=simple
+KillMode=process 
 ExecStart={}
 User=root
 Environment=\"JAVA_HOME={}\"
@@ -167,6 +168,7 @@ After=network.target
 
 [Service]
 Type=simple
+KillMode=process 
 ExecStart={}
 User=root
 Restart=on-failure

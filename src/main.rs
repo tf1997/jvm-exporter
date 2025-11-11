@@ -78,9 +78,14 @@ async fn run_guardian() {
 
     loop {
         info!("Guardian: Starting worker process...");
+        use std::process::Stdio; //for windows hide console on windows 7
         let mut child = Command::new(&exe)
             .args(&args)
+            .arg("--worker")
             .env(WORKER_ENV_VAR, "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .expect("Failed to spawn worker process");
 
@@ -184,6 +189,11 @@ async fn run_worker() {
             clap::Arg::new("auto_install")
                 .long("auto-install")
                 .help("Run the program with an installer role"),
+        )
+        .arg(
+            clap::Arg::new("worker")
+                .long("worker")
+                .help("Run the program with a worker role"),
         )
     
         .get_matches();

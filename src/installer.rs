@@ -162,6 +162,9 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         // Copy the new executable to the target path, overwriting if it exists
         info!("new_exe_path: {}", new_exe_path.display());
         info!("binary_target_path: {}", binary_target_path);
+        std::process::Command::new("systemctl")
+            .args(&["stop", &service_name])
+            .output()?;
         let max_retries = 5;
         let retry_delay = std::time::Duration::from_millis(500);
         for attempt in 0..max_retries {
@@ -215,6 +218,7 @@ After=network.target
 
 [Service]
 Type=simple
+KillMode=process 
 ExecStart={} --no-ui
 User=root
 Restart=on-failure
@@ -348,13 +352,11 @@ pub fn kill_process_on_port(port: u16) -> Result<(), Box<dyn std::error::Error>>
     use std::process::Command;
     use std::str;
 
-    // 使用 lsof 查找占用端口的进程
     let output = Command::new("lsof")
         .args(&["-i", &format!(":{}", port), "-sTCP:LISTEN", "-t"])
         .output()?;
 
     if !output.status.success() {
-        // 没有进程占用该端口，不算错误
         log::info!("No process found LISTENING on TCP port {}.", port);
         return Ok(());
     }
@@ -407,7 +409,7 @@ pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
     if let Some(process) = system.process(Pid::from_u32(pid)) {
         if let Some(parent_pid) = process.parent() {
             if let Some(parent_process) = system.process(parent_pid) {
-                if parent_process.name()..to_string_lossy().contains(env!("CARGO_PKG_NAME")) {
+                if parent_process.name().to_string_lossy().contains(env!("CARGO_PKG_NAME")) {
                     info!("Found guardian process with PID {}. Terminating the entire process tree.", parent_pid);
                     pid_to_kill = parent_pid.as_u32();
                     use_tree_kill = true;
@@ -418,9 +420,9 @@ pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
 
     let mut command = Command::new("taskkill");
     command.arg("/F");
-    if use_tree_kill {
-        command.arg("/T");
-    }
+    // if use_tree_kill {
+    //     command.arg("/T");
+    // }
     command.arg("/PID");
     command.arg(pid_to_kill.to_string());
 

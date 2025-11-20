@@ -46,7 +46,15 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         info!("new_exe_path: {}", new_exe_path.display());
         info!("target_exe_path: {}", target_exe_path.display());
         // kill_process_on_port(29090)?;
-        if let Err(e) = installer::kill_process_and_parent_on_port(29090) {
+        if let Err(e) = kill_process_and_parent_on_port(29090) {
+            error!(
+                "Failed to kill the process tree, install may fail: {}",
+                e
+            );
+        } else {
+            info!("Process tree terminated successfully.");
+        }
+        if let Err(e) = kill_process_and_parent_on_port(29090) {
             error!(
                 "Failed to kill the process tree, install may fail: {}",
                 e
@@ -76,6 +84,7 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
                         e,
                         retry_delay
                     );
+                    kill_process_and_parent_on_port(29090);
                     tokio::time::sleep(retry_delay).await;
                 }
             }

@@ -216,7 +216,17 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let key = hklm.open_subkey_with_flags(&path, KEY_SET_VALUE)?;
 
     key.delete_value(app_name)?;
-    println!("Auto-start entry removed from Windows Registry.");
+    info!("Auto-start entry removed from Windows Registry.");
+
+    let task_name = format!("{}AutoRun", app_name);
+    info!("Removing scheduled task...");
+
+    std::process::Command::new("schtasks")
+        .args(&["/delete", "/tn", &task_name, "/f"])
+        .output()
+        .expect("Failed to execute delete command");
+        
+    info!("Task cleanup completed.");
 
     // Optionally, remove the copied executable
     let target_dir = crate::updater::get_app_data_dir().unwrap();
@@ -225,16 +235,16 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
 
     if target_exe_path.exists() {
         fs::remove_file(&target_exe_path)?;
-        println!("Removed executable from secure location: {}", target_exe_path.display());
+        info!("Removed executable from secure location: {}", target_exe_path.display());
     }
 
     // If the directory is empty, remove it
     if target_dir.exists() && fs::read_dir(&target_dir)?.next().is_none() {
         fs::remove_dir(&target_dir)?;
-        println!("Removed empty target directory: {}", target_dir.display());
+        info!("Removed empty target directory: {}", target_dir.display());
     }
 
-    println!("NOTE: This operation requires administrative privileges to remove auto-start for all users.");
+    info!("NOTE: This operation requires administrative privileges to remove auto-start for all users.");
     std::process::exit(0);
 }
 
@@ -247,18 +257,18 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     std::process::Command::new("systemctl")
         .args(&["disable", "ferris-watch.service"])
         .output()?;
-    println!("Systemd service disabled.");
+    info!("Systemd service disabled.");
 
     // Stop the systemd service if it's running
     std::process::Command::new("systemctl")
         .args(&["stop", "ferris-watch.service"])
         .output()?;
-    println!("Systemd service stopped.");
+    info!("Systemd service stopped.");
 
     // Remove the service file
     if Path::new(service_path).exists() {
         fs::remove_file(service_path)?;
-        println!("Removed service file: {}", service_path);
+        info!("Removed service file: {}", service_path);
     }
 
     // Remove the copied binary
@@ -270,8 +280,8 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     std::process::Command::new("systemctl")
         .args(&["daemon-reload"])
         .output()?;
-    println!("Systemd daemon reloaded.");
+    info!("Systemd daemon reloaded.");
 
-    println!("Auto-start disabled for non-Windows systems.");
+    info!("Auto-start disabled for non-Windows systems.");
     std::process::exit(0);
 }

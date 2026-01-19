@@ -1,4 +1,4 @@
-use log::{info, error, warn};
+use log::{error, info, warn};
 use std::error::Error;
 use std::fs;
 use std::io::Write;
@@ -7,12 +7,12 @@ use std::path::Path;
 
 #[cfg(target_os = "windows")]
 use {
-    winreg::enums::*,
-    winreg::RegKey,
-    std::process::{Command, Stdio},
     anyhow::{anyhow, Context, Result},
     log::{error, warn},
     std::os::windows::process::CommandExt,
+    std::process::{Command, Stdio},
+    winreg::enums::*,
+    winreg::RegKey,
 };
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {
@@ -47,18 +47,12 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         info!("target_exe_path: {}", target_exe_path.display());
         // kill_process_on_port(29090)?;
         if let Err(e) = kill_process_and_parent_on_port(29090) {
-            error!(
-                "Failed to kill the process tree, install may fail: {}",
-                e
-            );
+            error!("Failed to kill the process tree, install may fail: {}", e);
         } else {
             info!("Process tree terminated successfully.");
         }
         if let Err(e) = kill_process_and_parent_on_port(29090) {
-            error!(
-                "Failed to kill the process tree, install may fail: {}",
-                e
-            );
+            error!("Failed to kill the process tree, install may fail: {}", e);
         } else {
             info!("Process tree terminated successfully.");
         }
@@ -69,13 +63,19 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         for attempt in 0..max_retries {
             match fs::copy(&new_exe_path, &target_exe_path) {
                 Ok(_) => {
-                    info!("New executable copied to secure location: {}", target_exe_path.display());
+                    info!(
+                        "New executable copied to secure location: {}",
+                        target_exe_path.display()
+                    );
                     break;
                 }
                 // If the copy fails, we retry up to max_retries times
                 Err(e) => {
                     if attempt == max_retries - 1 {
-                        error!("Failed to copy new executable after {} attempts: {}", max_retries, e);
+                        error!(
+                            "Failed to copy new executable after {} attempts: {}",
+                            max_retries, e
+                        );
                         return Err(Box::new(e));
                     }
                     warn!(
@@ -90,7 +90,6 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
             }
         }
 
-
         let target_exe_str = target_exe_path
             .to_str()
             .ok_or("Invalid target executable path")?;
@@ -98,23 +97,99 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         // Set auto-start registry entry
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        let (key, _disp) = hklm.create_subkey(&path)?;
+        // let (key, _disp) = hklm.create_subkey(&path)?;
 
-        key.set_value(app_name, &format!("\"{}\" --no-ui", target_exe_str))?;
+        // key.set_value(app_name, &format!("\"{}\" --no-ui", target_exe_str))?;
+
+        if let Ok(key) = hklm.open_subkey_with_flags(path, KEY_SET_VALUE) {
+            if key.delete_value(app_name).is_ok() {
+                info!("Removed auto-start entry.");
+            } else {
+                warn!("Found old auto-start entry but failed to remove it.");
+            }
+        } else {
+            warn!("Could not open registry path to clean up. This might be a permissions issue, or the path doesn't exist.");
+        }
 
         let old_path = "Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run";
         if let Ok(key) = hklm.open_subkey_with_flags(old_path, KEY_SET_VALUE) {
-            // Check if the value exists before trying to delete it.
-            if key.get_value::<String, _>(app_name).is_ok() {
-                if key.delete_value(app_name).is_ok() {
+            match key.delete_value(app_name) {
+                Ok(_) => {
                     info!("Removed old auto-start entry from WOW6432Node.");
-                } else {
-                    warn!("Found old auto-start entry in WOW6432Node but failed to remove it.");
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to remove old auto-start entry in WOW6432Node: {}",
+                        e
+                    );
                 }
             }
         } else {
-            warn!("Could not open old registry path to clean up. This might be a permissions issue, or the path doesn't exist.");
+            warn!("Could not open WOW6432Node registry path to clean up. This might be a permissions issue, or the path doesn't exist.");
+        }
 
+        // 1. Define Task Name
+        let task_name = format!("{}AutoRun", app_name);
+        info!(
+            "Registering scheduled task: {} -> {}",
+            task_name, target_exe_str
+        );
+
+        // 2. Execute 'schtasks' to create the task (SYSTEM privileges)
+        let status = Command::new("schtasks")
+            .args(&[
+                "/create",
+                "/f", // Force overwrite
+                "/tn",
+                &task_name, // Task Name
+                "/tr",
+                &format!("\"{}\" --no-ui", target_exe_str), // Task Run path
+                "/sc",
+                "onstart", // Schedule: On User Startup
+                "/ru",
+                "SYSTEM", // ★ Critical: Run as SYSTEM account
+                "/rl",
+                "HIGHEST", // Run with highest privileges
+            ])
+            .output()
+            .expect("Failed to execute schtasks command");
+
+        if !status.status.success() {
+            let err = String::from_utf8_lossy(&status.stderr);
+            error!(
+                "Failed to create task (Please ensure you are running as Administrator):\n{}",
+                err
+            );
+            return Err(Box::new(err.into_owned().into()));
+        }
+        info!("Basic task created successfully.");
+
+        // 3. [Critical] Modify power settings via PowerShell
+        // By default, tasks won't start if the laptop is on battery power.
+        // We must set DisallowStartIfOnBatteries to false.
+        let ps_script = format!(
+            "$t = Get-ScheduledTask -TaskName '{}'; \
+            $s = $t.Settings; \
+            $triggers = @($t.Triggers);
+            $dailyTrig = New-ScheduledTaskTrigger -Daily -At '01:00:00'; \
+            $triggers += $dailyTrig; \
+            $s.DisallowStartIfOnBatteries = $false; \
+            $s.StopIfGoingOnBatteries = $false; \
+            $s.MultipleInstances = 'IgnoreNew'; \
+            Set-ScheduledTask -TaskName '{}' -Settings $s -Trigger $triggers",
+            task_name, task_name
+        );
+
+        println!("Optimizing power settings (allowing start on battery mode)...");
+        let ps_status = Command::new("powershell")
+            .args(&["-NoProfile", "-Command", &ps_script])
+            .output()
+            .expect("Failed to execute PowerShell");
+
+        if ps_status.status.success() {
+            info!("Installation complete! The program will run with SYSTEM privileges upon the next user login.");
+        } else {
+            error!("Failed to modify power settings, but the task was created.");
         }
 
         // Optionally, run the program immediately after configuring auto-start
@@ -182,7 +257,10 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
                 // If the copy fails, we retry up to max_retries times
                 Err(e) => {
                     if attempt == max_retries - 1 {
-                        error!("Failed to copy new executable after {} attempts: {}", max_retries, e);
+                        error!(
+                            "Failed to copy new executable after {} attempts: {}",
+                            max_retries, e
+                        );
                         return Err(Box::new(e));
                     }
                     warn!(
@@ -265,9 +343,7 @@ WantedBy=multi-user.target",
 
 #[cfg(target_os = "windows")]
 fn find_pid_by_port(port: u16) -> Result<Option<u32>> {
-    use netstat_esr::{
-    get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo,
-    };
+    use netstat_esr::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP;
     let sockets = get_sockets_info(af_flags, proto_flags)?;
@@ -371,7 +447,11 @@ pub fn kill_process_on_port(port: u16) -> Result<(), Box<dyn std::error::Error>>
     let mut killed = false;
     for line in stdout.lines() {
         if let Ok(pid) = line.trim().parse::<i32>() {
-            log::info!("Attempting to kill process PID {} found on port {}...", pid, port);
+            log::info!(
+                "Attempting to kill process PID {} found on port {}...",
+                pid,
+                port
+            );
             let kill_output = Command::new("kill")
                 .arg("-9")
                 .arg(pid.to_string())
@@ -396,7 +476,7 @@ pub fn kill_process_on_port(port: u16) -> Result<(), Box<dyn std::error::Error>>
 
 #[cfg(target_os = "windows")]
 pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
-    use sysinfo::{System, Pid};
+    use sysinfo::{Pid, System};
 
     let pid = match find_pid_by_port(port)? {
         Some(p) => p,
@@ -415,8 +495,15 @@ pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
     if let Some(process) = system.process(Pid::from_u32(pid)) {
         if let Some(parent_pid) = process.parent() {
             if let Some(parent_process) = system.process(parent_pid) {
-                if parent_process.name().to_string_lossy().contains(env!("CARGO_PKG_NAME")) {
-                    info!("Found guardian process with PID {}. Terminating the entire process tree.", parent_pid);
+                if parent_process
+                    .name()
+                    .to_string_lossy()
+                    .contains(env!("CARGO_PKG_NAME"))
+                {
+                    info!(
+                        "Found guardian process with PID {}. Terminating the entire process tree.",
+                        parent_pid
+                    );
                     pid_to_kill = parent_pid.as_u32();
                     use_tree_kill = true;
                 }
@@ -433,12 +520,15 @@ pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
     command.arg(pid_to_kill.to_string());
 
     info!("Executing: {:?}", command);
-    
+
     let output = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .context(format!("Failed to execute taskkill for PID {}", pid_to_kill))?;
+        .context(format!(
+            "Failed to execute taskkill for PID {}",
+            pid_to_kill
+        ))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -448,18 +538,24 @@ pub fn kill_process_and_parent_on_port(port: u16) -> Result<()> {
             error!("Taskkill stdout: {}", stdout.trim());
             error!("Taskkill stderr: {}", stderr.trim());
             return Err(anyhow!(
-                  "taskkill command failed for PID {}. Status: {}. Error: {}",
-                    pid_to_kill,
-                    output.status,
-                    stderr.trim()
-               ));
+                "taskkill command failed for PID {}. Status: {}. Error: {}",
+                pid_to_kill,
+                output.status,
+                stderr.trim()
+            ));
         } else {
-            info!("Taskkill info: Process with PID {} was not found (already terminated).", pid_to_kill);
+            info!(
+                "Taskkill info: Process with PID {} was not found (already terminated).",
+                pid_to_kill
+            );
         }
     } else {
         info!("Taskkill success message: {}", stdout.trim());
         if !stderr.is_empty() {
-            info!("Taskkill stderr message (often informational): {}", stderr.trim());
+            info!(
+                "Taskkill stderr message (often informational): {}",
+                stderr.trim()
+            );
         }
     }
     Ok(())

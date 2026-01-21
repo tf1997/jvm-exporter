@@ -180,7 +180,7 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
             task_name, task_name
         );
 
-        println!("Optimizing power settings (allowing start on battery mode)...");
+        info!("Optimizing power settings (allowing start on battery mode)...");
         let ps_status = Command::new("powershell")
             .args(&["-NoProfile", "-Command", &ps_script])
             .output()
@@ -204,14 +204,12 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
 
         // Run the program immediately after configuring auto-start
         info!("Starting application immediately...");
-        use crate::WORKER_ENV_VAR;
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         Command::new(&target_exe_str)
             .arg("--no-ui")
-            .env_remove(WORKER_ENV_VAR)
             .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
             .spawn()?;
         info!("Application started.");

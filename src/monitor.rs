@@ -233,6 +233,7 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let current_exe_path = std::env::current_exe()?;
     let target_exe_path = target_dir.join(current_exe_path.file_name().ok_or("Invalid executable file name")?);
 
+    let _ = crate::installer::kill_process_and_parent_on_port(29090);
     if target_exe_path.exists() {
         fs::remove_file(&target_exe_path)?;
         info!("Removed executable from secure location: {}", target_exe_path.display());

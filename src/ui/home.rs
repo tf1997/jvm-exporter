@@ -6,6 +6,8 @@ use tokio; // Import tokio for spawning async tasks
 use log::{info, error}; // Import info and error for logging
 use crate::config::Config; // Import Config
 use std::sync::{Arc, RwLock}; // Import Arc and RwLock for shared state
+use tokio::runtime::Runtime;
+use crate::installer;
 
 fn app_buttons(config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
     fn_widget! {
@@ -35,11 +37,24 @@ fn app_buttons(config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
                 @{ Label::new("Start") }
             }
             @FilledButton {
-                on_tap: move |e| {
-                    match monitor::configure_auto_start(){
-                        Ok(_) => show_info_dialog("Autostart installed successfully!", e.window()),
-                        Err(e1) => show_info_dialog(format!("Failed to install autostart: {}", e1), e.window()),
-                    }
+                on_tap: move |_| {
+                    std::thread::spawn(move || {
+                        let rt = Runtime::new().unwrap();
+                        rt.block_on(async {
+                            match installer::install_application().await {
+                                Ok(_) => {
+                                    // show_info_dialog("Installation successful! Please restart the application.", window.clone());
+                                    info!("Installation successful! Please restart the application.");
+                                    std::process::exit(0);
+                                },
+                                Err(e) => {
+                                    error!("Installation failed: {}. Please run as administrator.", e);
+                                    // show_info_dialog(format!("Installation failed: {}. Please run as administrator.", e), window.clone());
+                                }
+                            }
+                        });
+                    });
+
                 },
                 @{ Label::new("Install Autostart") }
             }

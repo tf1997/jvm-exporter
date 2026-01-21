@@ -160,7 +160,7 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
                 "Failed to create task (Please ensure you are running as Administrator):\n{}",
                 err
             );
-            return Err(Box::new(err.into_owned().into()));
+            return Err(err.into_owned().into());
         }
         info!("Basic task created successfully.");
 
@@ -168,16 +168,28 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         // By default, tasks won't start if the laptop is on battery power.
         // We must set DisallowStartIfOnBatteries to false.
         let ps_script = format!(
-            "$t = Get-ScheduledTask -TaskName '{}'; \
-            $s = $t.Settings; \
+            r#"
+            $taskName = "{name}";
+            $t = Get-ScheduledTask -TaskName $taskName;
+            
             $triggers = @($t.Triggers);
-            $dailyTrig = New-ScheduledTaskTrigger -Daily -At '01:00:00'; \
-            $triggers += $dailyTrig; \
-            $s.DisallowStartIfOnBatteries = $false; \
-            $s.StopIfGoingOnBatteries = $false; \
-            $s.MultipleInstances = 'IgnoreNew'; \
-            Set-ScheduledTask -TaskName '{}' -Settings $s -Trigger $triggers",
-            task_name, task_name
+            if (-not ($triggers | Where-Object {{ $_.Repetition.Interval -eq 'P1D' }})) {{
+                $dailyTrig = New-ScheduledTaskTrigger -Daily -At '01:00:00';
+                $triggers += $dailyTrig;
+            }}
+
+            $newSettings = New-ScheduledTaskSettingsSet `
+                -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
+                -AllowStartIfOnBatteries `
+                -DontStopIfGoingOnBatteries `
+                -MultipleInstances IgnoreNew `
+                -Priority 7 `
+                -RestartCount 3 `
+                -RestartInterval (New-TimeSpan -Minutes 1);
+
+            Set-ScheduledTask -TaskName $taskName -Settings $newSettings -Trigger $triggers;
+            "#,
+            name = task_name
         );
 
         info!("Optimizing power settings (allowing start on battery mode)...");

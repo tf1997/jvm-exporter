@@ -47,7 +47,6 @@ async fn run_worker() {
     
 
     #[cfg(target_os = "windows")]{
-        let mut _instance_holder = None;
         windows_panic::setup_panic_hook();
         use std::env;
         let args: Vec<String> = env::args().collect();
@@ -56,9 +55,7 @@ async fn run_worker() {
             let instance = SingleInstance::new(&format!("Global\\{}UniqueLockString", env!("CARGO_PKG_NAME"))).unwrap();
             if !instance.is_single() {
                 eprintln!("Program is already running. Exiting this new instance.");
-                panic!("Program is already running. Another instance detected.");
                 std::process::exit(1);
-                return;
             }
             _instance_holder = Some(instance);
         }

@@ -37,7 +37,8 @@ fn app_buttons(config: Arc<RwLock<Config>>) -> impl WidgetBuilder {
                 @{ Label::new("Start") }
             }
             @FilledButton {
-                on_tap: move |_| {
+                on_tap: move |e| {
+                    show_info_dialog("Installing ... The window will be closed if successful.", e.window());
                     std::thread::spawn(move || {
                         let rt = Runtime::new().unwrap();
                         rt.block_on(async {

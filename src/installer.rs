@@ -169,25 +169,47 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         // We must set DisallowStartIfOnBatteries to false.
         let ps_script = format!(
             r#"
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
             $taskName = "{name}";
-            $t = Get-ScheduledTask -TaskName $taskName;
+            $ErrorActionPreference = "Stop";
+
+            try {{
+                $service = New-Object -ComObject Schedule.Service;
+                $service.Connect();
+                $rootFolder = $service.GetFolder("\");
+                
+                # Check if task exists to avoid error
+                try {{ $task = $rootFolder.GetTask($taskName) }} catch {{ Write-Error "Task not found"; exit 1 }}
+                
+                $def = $task.Definition;
+                $settings = $def.Settings;
+                $settings.Compatibility = 2; 
+
+                # --- Modify Settings ---
+                # ISO 8601 Duration: PT0S = 0 Seconds (Infinite)
+                $settings.ExecutionTimeLimit = "PT0S"; 
+                $settings.DisallowStartIfOnBatteries = $false;
+                $settings.StopIfGoingOnBatteries = $false;
             
-            $triggers = @($t.Triggers);
-            if (-not ($triggers | Where-Object {{ $_.Repetition.Interval -eq 'P1D' }})) {{
-                $dailyTrig = New-ScheduledTaskTrigger -Daily -At '01:00:00';
-                $triggers += $dailyTrig;
+                $hasDaily = $false;
+                foreach ($t in $def.Triggers) {{
+                    if ($t.Type -eq 2) {{ $hasDaily = $true; break; }}
+                }}
+
+                if (-not $hasDaily) {{
+                    $newTrig = $def.Triggers.Create(2); # 2 = Daily
+                    $newTrig.DaysInterval = 1;
+                    $tomorrow = (Get-Date).AddDays(1).ToString('yyyy-MM-dd');
+                    $newTrig.StartBoundary = "$tomorrow`T01:00:00"; 
+                }}
+
+                $rootFolder.RegisterTaskDefinition($taskName, $def, 4, $null, $null, 5);
+                Write-Host "Success: Settings updated (Compatibility upgraded to v2)."
+            }} catch {{
+                Write-Error "COM Script Failed: $($_.Exception.Message)"
+                exit 1
             }}
-
-            $newSettings = New-ScheduledTaskSettingsSet `
-                -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
-                -AllowStartIfOnBatteries `
-                -DontStopIfGoingOnBatteries `
-                -MultipleInstances IgnoreNew `
-                -Priority 7 `
-                -RestartCount 3 `
-                -RestartInterval (New-TimeSpan -Minutes 1);
-
-            Set-ScheduledTask -TaskName $taskName -Settings $newSettings -Trigger $triggers;
             "#,
             name = task_name
         );
@@ -201,7 +223,8 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         if ps_status.status.success() {
             info!("Installation complete! The program will run with SYSTEM privileges upon the next user login.");
         } else {
-            error!("Failed to modify power settings, but the task was created.");
+            let err = String::from_utf8_lossy(&ps_status.stderr);
+            error!("Failed to modify power settings, but the task was created. Error:\n{}", err);
         }
 
         // Optionally, run the program immediately after configuring auto-start

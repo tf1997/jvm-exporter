@@ -215,8 +215,11 @@ pub fn disable_auto_start() -> Result<(), Box<dyn std::error::Error>> {
     let path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     let key = hklm.open_subkey_with_flags(&path, KEY_SET_VALUE)?;
 
-    key.delete_value(app_name)?;
-    info!("Auto-start entry removed from Windows Registry.");
+    if key.delete_value(app_name).is_ok() {
+        info!("Auto-start registry entry removed successfully.");
+    } else {
+        error!("Auto-start registry entry not found or could not be removed.");
+    }
 
     let task_name = format!("{}AutoRun", app_name);
     info!("Removing scheduled task...");

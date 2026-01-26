@@ -13,6 +13,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, Pid, RefreshKind, System};
 use tokio::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub(crate) async fn handle_metrics(
     metrics: Arc<Metrics>,
@@ -357,6 +362,8 @@ async fn fetch_and_update_jstat(
 ) -> Result<HashSet<String>, Box<dyn std::error::Error + Send + Sync>> {
     let mut cmd = if container == "host" {
         let mut command_host = Command::new("jstat");
+        #[cfg(target_os = "windows")]
+        command_host.creation_flags(CREATE_NO_WINDOW);
         command_host.args(&[command, pid, "1000", "1"]);
         if let Some(jh) = java_home {
             command_host.env("JAVA_HOME", jh);
@@ -370,6 +377,8 @@ async fn fetch_and_update_jstat(
         // Execute jstat inside the container
         if is_docker_available().await {
             let mut cmd_docker = Command::new("docker");
+            #[cfg(target_os = "windows")]
+            cmd_docker.creation_flags(CREATE_NO_WINDOW);
             cmd_docker.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
             if let Some(jh) = java_home {
                 cmd_docker.env("JAVA_HOME", jh);
@@ -381,6 +390,8 @@ async fn fetch_and_update_jstat(
             cmd_docker
         } else if is_crictl_available().await {
             let mut cmd_crictl = Command::new("crictl");
+            #[cfg(target_os = "windows")]
+            cmd_crictl.creation_flags(CREATE_NO_WINDOW);
             cmd_crictl.args(&["exec", container, "jstat", command, pid, "1000", "1"]);
             if let Some(jh) = java_home {
                 cmd_crictl.env("JAVA_HOME", jh);
@@ -766,6 +777,8 @@ async fn get_java_processes(
             return Ok(processes); // Return empty if jps is not available
         }
         let mut command = Command::new("jps");
+        #[cfg(target_os = "windows")]
+        command.creation_flags(CREATE_NO_WINDOW);
         command.arg("-l");
         merge_java_home(java_home, &mut command)?;
         let output = command.output().await?;
@@ -814,10 +827,14 @@ async fn get_java_processes(
         let mut cmd;
         if is_docker_available().await {
             cmd = Command::new("docker");
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
             cmd.args(&["exec", &container, "jps", "-l"]);
             info!("Executing jps inside Docker container: {}", container);
         } else if is_crictl_available().await {
             cmd = Command::new("crictl");
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
             cmd.args(&["exec", &container, "jps", "-l"]);
             info!("Executing jps inside crictl container: {}", container);
         } else {
@@ -827,6 +844,8 @@ async fn get_java_processes(
         }
 
         if let Some(jh) = java_home {
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
             cmd.env("JAVA_HOME", jh);
             cmd.env(
                 "PATH",
@@ -880,7 +899,10 @@ async fn get_java_processes(
 
 // Detect if Docker is available
 async fn is_docker_available() -> bool {
-    let output = Command::new("docker")
+    let mut cmd = Command::new("docker");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd
         .arg("ps")
         .output()
         .await
@@ -891,7 +913,10 @@ async fn is_docker_available() -> bool {
 
 // Detect if crictl is available
 async fn is_crictl_available() -> bool {
-    let output = Command::new("crictl")
+    let mut cmd = Command::new("crictl");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd
         .arg("ps")
         .output()
         .await
@@ -966,7 +991,10 @@ async fn get_container_java_processes(
 }
 
 async fn is_jps_available() -> bool {
-    Command::new("jps")
+    let mut cmd = Command::new("jps");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
         .arg("-l")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -978,7 +1006,10 @@ async fn is_jps_available() -> bool {
 
 async fn is_jps_available_inside_container(container: &str) -> bool {
     if is_docker_available().await {
-        Command::new("docker")
+        let mut cmd = Command::new("docker");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
             .args(&["exec", container, "jps", "-l"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -987,7 +1018,10 @@ async fn is_jps_available_inside_container(container: &str) -> bool {
             .map(|status| status.success())
             .unwrap_or(false)
     } else if is_crictl_available().await {
-        Command::new("crictl")
+        let mut cmd = Command::new("crictl");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
             .args(&["exec", container, "jps", "-l"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -1002,7 +1036,10 @@ async fn is_jps_available_inside_container(container: &str) -> bool {
 
 // List Docker containers
 async fn list_docker_containers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let output = Command::new("docker")
+    let mut command = Command::new("docker");
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command
         .args(&["ps", "--format", "{{.ID}}"])
         .output()
         .await?;
@@ -1022,7 +1059,10 @@ async fn list_docker_containers() -> Result<Vec<String>, Box<dyn std::error::Err
 
 // List crictl containers
 async fn list_crictl_containers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let output = Command::new("crictl").args(&["ps", "-q"]).output().await?;
+    let mut command = Command::new("crictl");
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.args(&["ps", "-q"]).output().await?;
 
     if !output.status.success() {
         return Err(format!(
@@ -1042,6 +1082,8 @@ fn merge_java_home(
     command: &mut Command,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(jh) = java_home {
+        #[cfg(target_os = "windows")]
+        command.creation_flags(CREATE_NO_WINDOW);
         command.env("JAVA_HOME", jh);
         command.env(
             "PATH",

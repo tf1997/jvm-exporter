@@ -14,6 +14,10 @@ use {
     winreg::enums::*,
     winreg::RegKey,
 };
+#[cfg(target_os = "windows")]
+const DETACHED_PROCESS: u32 = 0x00000008;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {
     let new_exe_path = std::env::current_exe().unwrap();
@@ -151,6 +155,7 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
                 "/rl",
                 "HIGHEST", // Run with highest privileges
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .expect("Failed to execute schtasks command");
 
@@ -217,6 +222,7 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         info!("Optimizing power settings (allowing start on battery mode)...");
         let ps_status = Command::new("powershell")
             .args(&["-NoProfile", "-Command", &ps_script])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .expect("Failed to execute PowerShell");
 
@@ -240,8 +246,6 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
         // Run the program immediately after configuring auto-start
         info!("Starting application immediately...");
         use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         Command::new(&target_exe_str)
             .arg("--no-ui")
@@ -321,8 +325,9 @@ ExecStart={} --no-ui
 User=root
 Environment=\"JAVA_HOME={}\"
 Environment=\"PATH={}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"
-Restart=on-failure
-
+Restart=always
+RestartSec=5s
+KillMode=process
 [Install]
 WantedBy=multi-user.target",
                 app_name, binary_target_path, jh, jh

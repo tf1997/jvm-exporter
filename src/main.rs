@@ -91,7 +91,7 @@ async fn run_worker() {
 
     let config = Arc::new(RwLock::new(config));
 
-    init_logger(Arc::clone(&config));
+    init_logger(Arc::clone(&config), &target_dir);
 
     info!("Using config file at: {:?}", config_path);
     info!("Using config is: {:?}", config);
@@ -239,11 +239,8 @@ async fn run_worker() {
 }
 
 
-fn init_logger(config: Arc<RwLock<Config>>) {
-    let log_dir = crate::updater::get_app_data_dir()
-        .unwrap()
-        .join("temp")
-        .join("logs");
+fn init_logger(config: Arc<RwLock<Config>>, target_dir: &std::path::Path) {
+    let log_dir = target_dir.join("temp").join("logs");
 
     let log_file_path = log_dir.join("ferris-watch.log");
 

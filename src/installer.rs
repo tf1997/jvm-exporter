@@ -20,6 +20,7 @@ const DETACHED_PROCESS: u32 = 0x00000008;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub async fn install_application() -> Result<(), Box<dyn Error>> {
+    info!("Starting installation process...");
     let new_exe_path = std::env::current_exe().unwrap();
 
     let app_name = env!("CARGO_PKG_NAME");
@@ -276,13 +277,17 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
             fs::create_dir_all(binary_target_dir)?;
             info!("Target directory created: {}", binary_target_dir);
         }
-        kill_process_on_port(29090)?;
+    
         // Copy the new executable to the target path, overwriting if it exists
         info!("new_exe_path: {}", new_exe_path.display());
         info!("binary_target_path: {}", binary_target_path);
-        std::process::Command::new("systemctl")
+        if let Err(e) = std::process::Command::new("systemctl")
             .args(&["stop", &service_name])
-            .output()?;
+            .output(){
+            error!("Failed to stop service: {}", e);
+        } else {
+            info!("Service stop successfully.");
+        }
         let max_retries = 5;
         let retry_delay = std::time::Duration::from_millis(500);
         for attempt in 0..max_retries {
@@ -339,11 +344,12 @@ Description={} Service
 After=network.target
 
 [Service]
-Type=simple
-KillMode=process 
+Type=simple 
 ExecStart={} --no-ui
 User=root
-Restart=on-failure
+Restart=always
+RestartSec=5s
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target",

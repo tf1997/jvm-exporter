@@ -80,12 +80,30 @@ async fn run_worker() {
 
     let configuration_service_url = config.configuration_service_url.clone();
     if let Some(configuration_service_url) = configuration_service_url {
-        if let Err(e) = fetch_and_merge_config(&configuration_service_url, &mut config).await {
-            eprintln!(
-                "Failed to fetch configuration from configuration service: {}",
-                e
-            );
-            let _ = fetch_and_merge_config(&configuration_service_url, &mut config).await;
+        let max_retries = 3;
+        let retry_delay = std::time::Duration::from_secs(60);
+        for attempt in 0..max_retries {
+            match fetch_and_merge_config(&configuration_service_url, &mut config).await {
+                Ok(_) => {
+                    break;
+                }
+                Err(e) => {
+                    if attempt == max_retries - 1 {
+                        eprintln!(
+                            "Failed to fetch configuration from configuration service after {} attempts: {}",
+                            max_retries, e
+                        );
+                        
+                    }
+                    eprintln!(
+                        "Failed to fetch configuration from configuration service  (attempt {}): {}. Retrying in {:?}...",
+                        attempt + 1,
+                        e,
+                        retry_delay
+                    );
+                    tokio::time::sleep(retry_delay).await;
+                }
+            }
         }
     }
 

@@ -197,10 +197,15 @@ pub async fn install_application() -> Result<(), Box<dyn Error>> {
                 $settings.ExecutionTimeLimit = "PT0S"; 
                 $settings.DisallowStartIfOnBatteries = $false;
                 $settings.StopIfGoingOnBatteries = $false;
+
+                $settings.RunOnlyIfNetworkAvailable = $true;
             
                 $hasDaily = $false;
                 foreach ($t in $def.Triggers) {{
                     if ($t.Type -eq 2) {{ $hasDaily = $true; break; }}
+                    if ($t.Type -eq 8) {{
+                        $t.Delay = "PT30S"
+                    }}
                 }}
 
                 if (-not $hasDaily) {{

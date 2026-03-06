@@ -3,8 +3,10 @@ use prometheus::{CounterVec, GaugeVec, IntGaugeVec, Registry};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
+use jmon_rs::JvmMonitor;
+use dashmap::DashMap;
 
-pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-class"];
+pub const JSTAT_COMMANDS: &[&str] = &["-gc", "-class","-compiler", "-runtime"];
 pub const EXCLUDED_PROCESSES: &[&str] = &["jps"];
 pub const TCP_STATES: &[&str] = &[
     "CLOSED",
@@ -27,6 +29,7 @@ pub struct Metrics {
     pub(crate) active_pids: Mutex<HashMap<String, String>>, // Key: container#pid
     pub(crate) jstat_labels:
         Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
+    pub(crate) jvm_monitors: DashMap<String, JvmMonitor>,
     pub(crate) probe_metrics: ProbeMetrics,
     pub(crate) version: GaugeVec,
     pub(crate) os_version_info: IntGaugeVec,
@@ -573,6 +576,7 @@ impl Metrics {
             probe_metrics,
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
+            jvm_monitors: DashMap::new(),
             config,
             version,
             os_version_info,

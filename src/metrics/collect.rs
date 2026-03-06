@@ -1,7 +1,9 @@
+#[cfg(target_os = "windows")]
 use crate::collectors::disk;
 pub use crate::metrics::metrics::{
     Metrics, ProcessInfo, EXCLUDED_PROCESSES, JSTAT_COMMANDS, TCP_STATES,
 };
+use jmon_rs::JvmMonitor;
 use log::{error, info, warn};
 use netstat_esr::{
     get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, SocketInfo,
@@ -9,12 +11,12 @@ use netstat_esr::{
 use prometheus::{Encoder, GaugeVec, Registry};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, Pid, RefreshKind, System};
 use tokio::process::Command;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -234,49 +236,90 @@ async fn update_metrics(
             let container = proc_info.container.clone();
             let pid = proc_info.pid.clone();
             let process = proc_info.process.clone();
-            JSTAT_COMMANDS
-                .iter()
-                .map(move |&command| {
-                    let metrics = Arc::clone(&metrics);
-                    let java_home = java_home.clone();
-                    let container = container.clone();
-                    let pid = pid.clone();
-                    let process = process.clone();
+            if container == "host" {
+                let task = tokio::spawn(async move {
+                    match fetch_and_update_jstat_host(
+                        &container,
+                        &pid,
+                        &process,
+                        &metrics.process_metrics.jstat_metrics_map,
+                        &metrics,
+                    )
+                    .await
+                    {
+                        Ok(metric_names_map) => {
+                            // Record metric_names
+                            let mut jstat_labels = metrics.jstat_labels.lock().await;
 
-                    tokio::spawn(async move {
-                        if let Some(metric) = metrics.process_metrics.jstat_metrics_map.get(command)
-                        {
-                            match fetch_and_update_jstat(
-                                &container,
-                                &pid,
-                                &process,
-                                command,
-                                metric,
-                                java_home.as_deref(),
-                            )
-                            .await
-                            {
-                                Ok(metric_names) => {
-                                    // Record metric_names
-                                    let mut jstat_labels = metrics.jstat_labels.lock().await;
-                                    let key =
-                                        (command, container.clone(), pid.clone(), process.clone());
-                                    jstat_labels
-                                        .entry(key)
-                                        .or_insert_with(HashSet::new)
-                                        .extend(metric_names);
-                                }
-                                Err(err) => {
-                                    warn!(
-                                        "Failed to update {} metrics for PID {} ({} in {}): {}",
-                                        command, pid, process, container, err
-                                    );
-                                }
+                            for (&command, metric_names) in &metric_names_map {
+                                let key =
+                                    (command, container.clone(), pid.clone(), process.clone());
+                                jstat_labels
+                                    .entry(key)
+                                    .or_insert_with(HashSet::new)
+                                    .extend(metric_names.iter().cloned());
                             }
                         }
+                        Err(err) => {
+                            warn!(
+                                "Failed to update host jstat metrics for PID {}: {}",
+                                pid, err
+                            );
+                        }
+                    }
+                });
+                vec![task]
+            } else {
+                JSTAT_COMMANDS
+                    .iter()
+                    .filter(|&&cmd| cmd != "-compiler" && cmd != "-runtime")
+                    .map(move |&command| {
+                        let metrics = Arc::clone(&metrics);
+                        let java_home = java_home.clone();
+                        let container = container.clone();
+                        let pid = pid.clone();
+                        let process = process.clone();
+
+                        tokio::spawn(async move {
+                            if let Some(metric) =
+                                metrics.process_metrics.jstat_metrics_map.get(command)
+                            {
+                                match fetch_and_update_jstat(
+                                    &container,
+                                    &pid,
+                                    &process,
+                                    command,
+                                    metric,
+                                    java_home.as_deref(),
+                                )
+                                .await
+                                {
+                                    Ok(metric_names) => {
+                                        // Record metric_names
+                                        let mut jstat_labels = metrics.jstat_labels.lock().await;
+                                        let key = (
+                                            command,
+                                            container.clone(),
+                                            pid.clone(),
+                                            process.clone(),
+                                        );
+                                        jstat_labels
+                                            .entry(key)
+                                            .or_insert_with(HashSet::new)
+                                            .extend(metric_names);
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            "Failed to update {} metrics for PID {} ({} in {}): {}",
+                                            command, pid, process, container, err
+                                        );
+                                    }
+                                }
+                            }
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
+                    .collect::<Vec<_>>()
+            }
         })
         .collect();
     futures::future::join_all(tasks).await;
@@ -472,6 +515,127 @@ async fn fetch_and_update_jstat(
         }
     }
     Ok(metric_names)
+}
+
+async fn fetch_and_update_jstat_host(
+    container: &String,
+    pid: &String,
+    process: &String,
+    metrics_map: &HashMap<&'static str, GaugeVec>,
+    metrics: &Arc<Metrics>,
+) -> Result<HashMap<&'static str, HashSet<String>>, Box<dyn std::error::Error + Send + Sync>> {
+    if !metrics.jvm_monitors.contains_key(pid) {
+        match JvmMonitor::connect(pid.parse()?) {
+            Ok(m) => {
+                metrics.jvm_monitors.insert(pid.clone(), m);
+            }
+            Err(e) => {
+                eprintln!("Failed to connect to JVM monitor for PID {}: {}", pid, e);
+            }
+        }
+    }
+
+    let mut results = HashMap::new();
+
+    if let Some(m) = metrics.jvm_monitors.get(pid) {
+        if m.read_string("sun.rt.javaCommand") == "-" {
+            metrics.jvm_monitors.remove(pid);
+            return Err("JVM PerfData is stale, cache cleared".into());
+        }
+
+        if let Some(jstat_metrics) = metrics_map.get("-gc") {
+            let mut metric_names = HashSet::new();
+            let gc = m.get_gc_stats();
+            let mut update = |name: &str, val: f64| {
+                jstat_metrics
+                    .with_label_values(&[container, pid, process, name])
+                    .set(val);
+                metric_names.insert(name.to_string());
+            };
+
+            update("S0C", gc.s0c);
+            update("S1C", gc.s1c);
+            update("S0U", gc.s0u);
+            update("S1U", gc.s1u);
+            update("EC", gc.ec);
+            update("EU", gc.eu);
+            update("OC", gc.oc);
+            update("OU", gc.ou);
+            update("MC", gc.mc);
+            update("MU", gc.mu);
+            update("CCSC", gc.ccsc);
+            update("CCSU", gc.ccsu);
+            update("YGC", gc.ygc as f64);
+            update("YGCT", gc.ygct);
+            update("FGC", gc.fgc as f64);
+            update("FGCT", gc.fgct);
+            update("CGC", gc.cgc as f64);
+            update("CGCT", gc.cgct);
+            update("GCT", gc.gct);
+
+            results.insert("-gc", metric_names);
+        }
+
+        if let Some(jstat_metrics) = metrics_map.get("-class") {
+            let mut metric_names = HashSet::new();
+            let cs = m.get_class_stats();
+            let mut update = |name: &str, val: f64| {
+                jstat_metrics
+                    .with_label_values(&[container, pid, process, name])
+                    .set(val);
+                metric_names.insert(name.to_string());
+            };
+            update("Loaded", cs.loaded as f64);
+            update("BytesLoaded", cs.bytes);
+            update("Unloaded", cs.unloaded as f64);
+            update("BytesUnloaded", cs.unloaded_bytes);
+            update("Time", cs.time);
+
+            results.insert("-class", metric_names);
+        }
+
+        if let Some(jstat_metrics) = metrics_map.get("-compiler") {
+            let mut metric_names = HashSet::new();
+            let cps = m.get_compiler_stats();
+            let mut update = |name: &str, val: f64| {
+                jstat_metrics
+                    .with_label_values(&[container, pid, process, name])
+                    .set(val);
+                metric_names.insert(name.to_string());
+            };
+            update("Compiled", cps.compiled as f64);
+            update("Failed", cps.failed as f64);
+            update("Invalid", cps.invalid as f64);
+            update("Time", cps.time);
+
+            results.insert("-compiler", metric_names);
+        }
+
+        if let Some(jstat_metrics) = metrics_map.get("-runtime") {
+            let mut metric_names = HashSet::new();
+            let rts = m.get_runtime_stats();
+            let mut update = |name: &str, val: f64| {
+                jstat_metrics
+                    .with_label_values(&[container, pid, process, name])
+                    .set(val);
+                metric_names.insert(name.to_string());
+            };
+            update("AppTimeSenconds", rts.app_time_s);
+            update("CodeCacheCapacity", rts.code_cache_capacity);
+            update("CodeCacheUsed", rts.code_cache_used);
+            update("CodeCacheUtilization", rts.code_cache_utilization);
+            update("SafepointOverhead", rts.safepoint_overhead);
+            update("SafepointTimeSeconds", rts.safepoint_time_s);
+            update("Safepoints", rts.safepoints as f64);
+            update("ThreadsDaemon", rts.threads_daemon as f64);
+            update("ThreadsLive", rts.threads_live as f64);
+            update("ThreadsPeak", rts.threads_peak as f64);
+
+            results.insert("-runtime", metric_names);
+        }
+    }
+
+    Ok(results)
 }
 
 // Update CPU and Memory metrics
@@ -772,51 +936,33 @@ async fn get_java_processes(
     let mut processes = HashMap::new();
 
     if container == "host" {
-        if !is_jps_available().await {
-            error!("jps command not found. Please ensure that JDK is installed and JAVA_HOME is set correctly.");
-            return Ok(processes); // Return empty if jps is not available
-        }
-        let mut command = Command::new("jps");
-        #[cfg(target_os = "windows")]
-        command.creation_flags(CREATE_NO_WINDOW);
-        command.arg("-l");
-        merge_java_home(java_home, &mut command)?;
-        let output = command.output().await?;
+        match JvmMonitor::discover_all() {
+            Ok(pis) => {
+                for p in pis {
+                    let process_name = p.name;
+                    let pid = p.pid;
+                    let class_name = process_name.split('.').last().unwrap_or(&process_name);
 
-        if !output.status.success() {
-            return Err(format!(
-                "jps failed for host: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )
-            .into());
-        }
+                    if EXCLUDED_PROCESSES
+                        .iter()
+                        .any(|&excluded| excluded.eq_ignore_ascii_case(class_name))
+                    {
+                        continue;
+                    }
 
-        let stdout = String::from_utf8(output.stdout)?;
-        info!("Host jps output:\n{}", stdout);
+                    let final_process_name = if full_path {
+                        process_name.clone()
+                    } else {
+                        class_name.to_string()
+                    };
 
-        for line in stdout.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let process_name_original = parts[1];
-                let class_name = process_name_original
-                    .split('.')
-                    .last()
-                    .unwrap_or(process_name_original);
-
-                if EXCLUDED_PROCESSES
-                    .iter()
-                    .any(|&excluded| excluded.eq_ignore_ascii_case(class_name))
-                {
-                    continue;
+                    processes.insert(pid.to_string(), final_process_name);
                 }
-
-                let process_name = if full_path {
-                    process_name_original.to_string()
-                } else {
-                    class_name.to_string()
-                };
-
-                processes.insert(parts[0].to_string(), process_name);
+                return Ok(processes);
+            }
+            Err(e) => {
+                warn!("Failed to discover Java processes using jmon_rs: {}. Falling back to jps command.", e);
+                return Err(format!("Failed to discover Java processes for host: {:?}", e).into());
             }
         }
     } else {
@@ -994,8 +1140,7 @@ async fn is_jps_available() -> bool {
     let mut cmd = Command::new("jps");
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    cmd
-        .arg("-l")
+    cmd.arg("-l")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -1009,8 +1154,7 @@ async fn is_jps_available_inside_container(container: &str) -> bool {
         let mut cmd = Command::new("docker");
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd
-            .args(&["exec", container, "jps", "-l"])
+        cmd.args(&["exec", container, "jps", "-l"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
@@ -1021,8 +1165,7 @@ async fn is_jps_available_inside_container(container: &str) -> bool {
         let mut cmd = Command::new("crictl");
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd
-            .args(&["exec", container, "jps", "-l"])
+        cmd.args(&["exec", container, "jps", "-l"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()

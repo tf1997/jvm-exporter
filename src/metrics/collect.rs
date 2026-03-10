@@ -851,17 +851,26 @@ async fn update_system_metrics(
         .with_label_values(&["used"])
         .set(system.used_swap() as f64);
 
-    let open_file = system
-        .processes()
-        .iter()
-        .map(|(_, process)| process.open_files().unwrap_or(0) as f64)
-        .sum::<f64>();
+    let open_file = if cfg!(target_os = "linux") {
+        if let Ok(content) = std::fs::read_to_string("/proc/sys/fs/file-nr") {
+            let parts: Vec<&str> = content.split_whitespace().collect();
+            if let Some(count) = parts.get(0).and_then(|s| s.parse::<u64>().ok()) {
+                count as f64
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    } else {
+        system
+            .processes()
+            .iter()
+            .map(|(_, process)| process.open_files().unwrap_or(0) as f64)
+            .sum::<f64>()
+    };
 
-    let open_file_limit = system
-        .processes()
-        .iter()
-        .map(|(_, process)| process.open_files_limit().unwrap_or(0) as f64)
-        .sum::<f64>();
+    let open_file_limit = System::open_files_limit().unwrap_or(0) as f64;
 
     metrics
         .system_metrics

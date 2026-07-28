@@ -49,7 +49,7 @@ async fn update_metrics(
     full_path: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_processes = Vec::new();
-    let mut host_process_names: HashSet<String> = HashSet::new();
+    let mut collected_pids: HashSet<String> = HashSet::new();
 
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP;
@@ -69,12 +69,13 @@ async fn update_metrics(
         host_processes = get_java_processes(java_home, full_path, "host".to_string()).await?;
     }
     for (pid, pname) in host_processes {
-        all_processes.push(ProcessInfo {
-            container: "host".to_string(),
-            pid,
-            process: pname.clone(),
-        });
-        host_process_names.insert(pname.clone());
+        if collected_pids.insert(pid.clone()) {
+            all_processes.push(ProcessInfo {
+                container: "host".to_string(),
+                pid,
+                process: pname,
+            });
+        }
     }
 
     // 2. Detect and Collect Container Processes
@@ -83,14 +84,14 @@ async fn update_metrics(
     let filtered_container_processes: Vec<ProcessInfo> = container_processes
         .into_iter()
         .filter(|proc_info| {
-            if host_process_names.contains(&proc_info.process) {
+            if collected_pids.insert(proc_info.pid.clone()) {
+                true
+            } else {
                 info!(
-                    "Skipping container process '{}' in '{}': already exists on host.",
-                    proc_info.process, proc_info.container
+                    "Skipping container process '{}' in '{}': PID {} is already collected.",
+                    proc_info.process, proc_info.container, proc_info.pid
                 );
                 false
-            } else {
-                true
             }
         })
         .collect();
@@ -116,15 +117,15 @@ async fn update_metrics(
         // Use the already initialized 'system' object
         for (pid, process) in system.processes() {
             let process_name = process.name().to_str().unwrap_or_default().to_string();
-            let ppid = process.parent().unwrap_or(Pid::from_u32(0)).as_u32();
+            let pid = pid.to_string();
             if system_processes_regex
                 .iter()
                 .any(|re| re.is_match(&process_name))
-                && ppid == 1u32
+                && collected_pids.insert(pid.clone())
             {
                 all_processes.push(ProcessInfo {
                     container: "system".to_string(),
-                    pid: pid.to_string(),
+                    pid,
                     process: process_name,
                 });
             }
@@ -651,6 +652,8 @@ async fn update_process_cpu_memory_metrics(
     let pids: Vec<Pid> = processes
         .iter()
         .filter_map(|p| Pid::from_str(p.pid.as_str()).ok())
+        .collect::<HashSet<_>>()
+        .into_iter()
         .collect();
     system.refresh_processes_specifics(
         sysinfo::ProcessesToUpdate::Some(&pids), // Refresh all processes

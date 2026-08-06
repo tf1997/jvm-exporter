@@ -30,6 +30,8 @@ pub struct Metrics {
     pub(crate) jstat_labels:
         Mutex<HashMap<(&'static str, String, String, String), HashSet<String>>>, // (command, container, pid, process_name)
     pub(crate) jvm_monitors: DashMap<String, JvmMonitor>,
+    /// Single-flight guard so concurrent /metrics scrapes don't stack full collections.
+    pub(crate) collect_lock: Mutex<()>,
     pub(crate) probe_metrics: ProbeMetrics,
     pub(crate) version: GaugeVec,
     pub(crate) os_version_info: IntGaugeVec,
@@ -577,6 +579,7 @@ impl Metrics {
             active_pids: Mutex::new(HashMap::new()),
             jstat_labels: Mutex::new(HashMap::new()),
             jvm_monitors: DashMap::new(),
+            collect_lock: Mutex::new(()),
             config,
             version,
             os_version_info,

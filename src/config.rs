@@ -37,7 +37,9 @@ pub fn with_config(
 }
 
 pub async fn fetch_and_merge_config(url: &str, config: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
-    let response = ureq::get(url).call()?;
+    let response = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(30))
+        .call()?;
     let content_type = response.header("Content-Type").unwrap_or("");
     let yaml_string = if content_type.contains("yaml") || content_type.contains("text") {
         response.into_string()?

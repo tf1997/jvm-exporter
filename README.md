@@ -1,257 +1,362 @@
-# JVM Exporter
+# ferris-watch
 
-JVM Exporter, as a Prometheus exporter, is a robust monitoring tool designed to operate as an independent process,
-providing detailed insights into Java Virtual Machine (JVM) metrics. Unlike tools such as jmx-exporter, which require
-integration into Java applications to function, JVM Exporter runs separately. This design allows it to monitor all Java
-processes on a server without modifying their execution environment or embedding code. Additionally, JVM Exporter can
-monitor non-Java processes' CPU and memory usage, as well as server-level metrics such as CPU, disk, and network speed.
-It also supports configuration centers, making it suitable for deployment across multiple server instances. Importantly,
-JVM Exporter is specifically designed as an exporter for Prometheus, enabling seamless integration with Prometheus. This
-integration offers a powerful, unified monitoring and alerting solution, making it possible to effectively track and
-analyze JVM performance metrics within the Prometheus ecosystem.
+`ferris-watch` is a standalone Prometheus exporter for JVM, process, and host
+metrics. It discovers Java processes on the host and reads HotSpot PerfData
+without adding a Java agent or changing application startup parameters. It can
+also monitor selected non-Java processes, container JVMs, host resources, and
+TCP, ICMP, and HTTP probe targets.
 
-## ferris-watch vs. JMX-Exporter
+The exporter listens on `0.0.0.0:29090` and exposes metrics at
+`http://localhost:29090/metrics`.
 
-| Feature                         | ferris-watch                            | JMX-Exporter                                  |
-|---------------------------------|-----------------------------------------|-----------------------------------------------|
-| **Integration**                 | Runs as an independent process          | Requires integration into Java applications   |
-| **Java Process Monitoring**     | Monitors all Java processes on a server | Monitors only the integrated Java application |
-| **Non-Java Process Monitoring** | Yes (CPU, memory, upTime)               | No                                            |
-| **Server-Level Metrics**        | Yes (CPU, disk, network speed, upTime)  | No                                            |
-| **Configuration Centers**       | Supported                               | Not supported                                 |
-| **Deployment**                  | Suitable for multiple server instances  | Limited to individual Java applications       |
-| **Prometheus Integration**      | Seamless                                | Seamless                                      |
+## Highlights
 
-## Compile & Installation
+- Discovers all accessible host JVMs with `jmon-rs`.
+- Reuses one checked JVM monitor per PID and detects process exit or PID reuse.
+- Collects JVM GC, class loading, compiler, thread, code cache, and safepoint data.
+- Supports Docker and CRI containers when `jps` and `jstat` are available inside them.
+- Collects CPU, memory, uptime, file descriptor, disk, network, and TCP metrics.
+- Monitors additional system processes selected with regular expressions.
+- Includes ready-to-import Grafana dashboards for node detail and fleet views.
+- Supports local YAML configuration and optional remote configuration merging.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/tf1997/ferris-watch.git
-   ```
-2. Build the project (ensure you have Rust installed):
-    ```bash
-    cd ferris-watch
-    cargo build --release
-    ```
+## How It Works
 
-## Using Precompiled Binaries
+```text
+JVM PerfData / jstat   /proc and OS APIs   probe targets
+         |                    |                  |
+         +--------------------+------------------+
+                              |
+                         ferris-watch
+                              |
+                       /metrics :29090
+                              |
+                         Prometheus
+                              |
+                           Grafana
+```
 
-For convenience, precompiled binaries for Linux and Windows are provided.
+Host JVM collection uses memory-mapped HotSpot PerfData. Container JVM
+collection executes `jps` and `jstat` through Docker or `crictl`. Non-Java and
+host metrics are collected with OS APIs and `sysinfo`.
 
-### Linux
+## Requirements
 
-1. Download the binary:
-   ```bash
-   wget https://github.com/tf1997/ferris-watch/releases/download/0.1/ferris-watch
-   ```
-2. Make it executable:
-   ```bash
-   chmod +x ferris-watch
-   ```
-3. Move it to an appropriate location:
-   ```bash
-   sudo mv ferris-watch /usr/local/bin/ferris-watch
-   ```
+- Linux, macOS, or Windows.
+- Access to the target processes and their HotSpot PerfData files.
+- On Linux, permission to read the relevant `/proc/<pid>` entries.
+- For container JVM metrics, Docker or `crictl` plus a JDK containing `jps` and
+  `jstat` inside the target container.
+- Rust and Cargo are required only when building from source.
 
-## Usage
+Run the exporter as a user that can inspect the target JVMs. Different Unix
+users can be restricted from reading each other's `/proc` and `hsperfdata`
+files.
 
-### command-line arguments
+## Build
 
-Start the JVM Exporter with configurable command-line arguments:
+```bash
+git clone https://github.com/tf1997/ferris-watch.git
+cd ferris-watch
+cargo build --release
+./target/release/ferris-watch --no-ui
+```
 
-- `--java-home`: Set a custom JAVA_HOME.
-- `--full-path`: By default, the full package path is displayed; this argument makes it display only the class name.
-- `--auto-start`: Configure the program to auto-start with the system.
+Release binaries can also be downloaded from the project's
+[GitHub Releases](https://github.com/tf1997/ferris-watch/releases) page.
 
-### configurable yaml file
+## Configuration
 
-The Configurable yaml file need to be placed in `/usr/local/ferris-watch/config.yaml`
+At startup, ferris-watch logs the exact path of the active `config.yaml`. The
+default application data directory is resolved by the operating system:
+
+| Platform | Typical location |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/ferris-watch/config.yaml` or `~/.local/share/ferris-watch/config.yaml` |
+| macOS | `~/Library/Application Support/ferris-watch/config.yaml` |
+| Windows | `%PROGRAMDATA%\ferris-watch\config.yaml` |
+
+The exporter starts with defaults when the file does not exist.
 
 ```yaml
-configuration_service_url: http://127.0.0.1:29090/config
-log_level: ERROR
+log_level: info
+java_home: /usr/lib/jvm/java-17
+configuration_service_url:
+update_service_url:
+detect_java_processes: true
+detect_docker_processes: false
 system_processes:
-  - Notability
-  - WindowServer
+  - '^nginx$'
+  - 'postgres'
 ```
 
-note:
+| Option | Description | Default |
+| --- | --- | --- |
+| `log_level` | `error`, `warn`, `info`, `debug`, or `trace` | `info` |
+| `java_home` | Java home used by container `jstat` commands | Environment/default PATH |
+| `detect_java_processes` | Discover and collect host JVMs | `true` |
+| `detect_docker_processes` | Discover JVMs in Docker or CRI containers | `false` |
+| `system_processes` | Regular expressions matched against process names | Empty |
+| `configuration_service_url` | Optional remote YAML configuration endpoint | Empty |
+| `update_service_url` | Optional application update endpoint | Empty |
 
-- `configuration_service_url` is come from the master ferris-watch, non-master all can use its config. And, your local
-  `system_processes` config will not be overwritten
-- `system_processes` is system processes you want to monitoring
+`system_processes` entries are Rust regular expressions, not shell globs. For
+example, use `.*java.*` rather than `*java*`.
 
-### Start the Service
+Remote configuration can update most settings. Local and remote
+`system_processes` entries are merged.
 
-   ```bash
-   ./ferris-watch
-   ```
+## Command Line
 
-## View Metrics
-
-Open your browser and visit http://localhost:29090/metrics to view the metrics.
-
-### Grafana dashboard
-
-The grafana dashboard is coming soon.
-
-### Example Output
-
-```plaintext
-# HELP jstat_class_metrics Metrics from jstat -class
-# TYPE jstat_class_metrics gauge
-jstat_class_metrics{container="host",metric_name="Bytes",pid="31755",process_name="Main"} 5599
-jstat_class_metrics{container="host",metric_name="Loaded",pid="31755",process_name="Main"} 80606
-jstat_class_metrics{container="host",metric_name="Time",pid="31755",process_name="Main"} 22.76
-jstat_class_metrics{container="host",metric_name="Unloaded",pid="31755",process_name="Main"} 5113
-# HELP jstat_gc_metrics Metrics from jstat -gc
-# TYPE jstat_gc_metrics gauge
-jstat_gc_metrics{container="host",metric_name="CCSC",pid="31755",process_name="Main"} 57664
-jstat_gc_metrics{container="host",metric_name="CCSU",pid="31755",process_name="Main"} 55127.6
-jstat_gc_metrics{container="host",metric_name="CGC",pid="31755",process_name="Main"} 76
-jstat_gc_metrics{container="host",metric_name="CGCT",pid="31755",process_name="Main"} 3.384
-jstat_gc_metrics{container="host",metric_name="EC",pid="31755",process_name="Main"} 716800
-jstat_gc_metrics{container="host",metric_name="EU",pid="31755",process_name="Main"} 663552
-jstat_gc_metrics{container="host",metric_name="FGC",pid="31755",process_name="Main"} 0
-jstat_gc_metrics{container="host",metric_name="FGCT",pid="31755",process_name="Main"} 0
-jstat_gc_metrics{container="host",metric_name="GCT",pid="31755",process_name="Main"} 10.158
-jstat_gc_metrics{container="host",metric_name="MC",pid="31755",process_name="Main"} 454336
-jstat_gc_metrics{container="host",metric_name="MU",pid="31755",process_name="Main"} 448505.1
-jstat_gc_metrics{container="host",metric_name="OC",pid="31755",process_name="Main"} 759808
-jstat_gc_metrics{container="host",metric_name="OU",pid="31755",process_name="Main"} 678940.4
-jstat_gc_metrics{container="host",metric_name="S0C",pid="31755",process_name="Main"} 0
-jstat_gc_metrics{container="host",metric_name="S0U",pid="31755",process_name="Main"} 0
-jstat_gc_metrics{container="host",metric_name="S1C",pid="31755",process_name="Main"} 30720
-jstat_gc_metrics{container="host",metric_name="S1U",pid="31755",process_name="Main"} 30720
-jstat_gc_metrics{container="host",metric_name="YGC",pid="31755",process_name="Main"} 134
-jstat_gc_metrics{container="host",metric_name="YGCT",pid="31755",process_name="Main"} 6.774
-# HELP jstat_gcutil_metrics Metrics from jstat -gcutil
-# TYPE jstat_gcutil_metrics gauge
-jstat_gcutil_metrics{container="host",metric_name="CCS",pid="31755",process_name="Main"} 95.6
-jstat_gcutil_metrics{container="host",metric_name="CGC",pid="31755",process_name="Main"} 76
-jstat_gcutil_metrics{container="host",metric_name="CGCT",pid="31755",process_name="Main"} 3.384
-jstat_gcutil_metrics{container="host",metric_name="E",pid="31755",process_name="Main"} 92.57
-jstat_gcutil_metrics{container="host",metric_name="FGC",pid="31755",process_name="Main"} 0
-jstat_gcutil_metrics{container="host",metric_name="FGCT",pid="31755",process_name="Main"} 0
-jstat_gcutil_metrics{container="host",metric_name="GCT",pid="31755",process_name="Main"} 10.158
-jstat_gcutil_metrics{container="host",metric_name="M",pid="31755",process_name="Main"} 98.72
-jstat_gcutil_metrics{container="host",metric_name="O",pid="31755",process_name="Main"} 89.36
-jstat_gcutil_metrics{container="host",metric_name="S0",pid="31755",process_name="Main"} 0
-jstat_gcutil_metrics{container="host",metric_name="S1",pid="31755",process_name="Main"} 100
-jstat_gcutil_metrics{container="host",metric_name="YGC",pid="31755",process_name="Main"} 134
-jstat_gcutil_metrics{container="host",metric_name="YGCT",pid="31755",process_name="Main"} 6.774
-# HELP process_cpu_usage CPU usage percentage of the process
-# TYPE process_cpu_usage gauge
-process_cpu_usage{container="host",pid="31755",process_name="Main"} 0
-process_cpu_usage{container="system",pid="377",process_name="WindowServer"} 0
-# HELP process_memory_usage_bytes Memory usage in bytes of the process
-# TYPE process_memory_usage_bytes gauge
-process_memory_usage_bytes{container="host",pid="31755",process_name="Main"} 636764160
-process_memory_usage_bytes{container="system",pid="377",process_name="WindowServer"} 0
-# HELP process_memory_usage_percentage Memory usage percentage of the process
-# TYPE process_memory_usage_percentage gauge
-process_memory_usage_percentage{container="host",pid="31755",process_name="Main"} 2.4709701538085938
-process_memory_usage_percentage{container="system",pid="377",process_name="WindowServer"} 0
-# HELP process_start_time_seconds Start time of the process in seconds since the epoch
-# TYPE process_start_time_seconds gauge
-process_start_time_seconds{container="host",pid="31755",process_name="Main"} 1741415180
-process_start_time_seconds{container="system",pid="377",process_name="WindowServer"} 0
-# HELP process_up_time_seconds Up time of the process in seconds
-# TYPE process_up_time_seconds gauge
-process_up_time_seconds{container="host",pid="31755",process_name="Main"} 84531
-process_up_time_seconds{container="system",pid="377",process_name="WindowServer"} 1741499711
-# HELP system_cpu_usage_percentage Total system CPU usage percentage
-# TYPE system_cpu_usage_percentage gauge
-system_cpu_usage_percentage{cpu="cpu_0"} 34.87955856323242
-system_cpu_usage_percentage{cpu="cpu_1"} 31.203964233398438
-system_cpu_usage_percentage{cpu="cpu_2"} 24.033348083496094
-system_cpu_usage_percentage{cpu="cpu_3"} 19.487337112426758
-system_cpu_usage_percentage{cpu="cpu_4"} 6.520895004272461
-system_cpu_usage_percentage{cpu="cpu_5"} 5.245965480804443
-system_cpu_usage_percentage{cpu="cpu_6"} 3.537290573120117
-system_cpu_usage_percentage{cpu="cpu_7"} 2.674703359603882
-# HELP system_disk_usage_bytes Disk usage in bytes
-# TYPE system_disk_usage_bytes gauge
-system_disk_usage_bytes{disk="LM Studio 0.3.12-arm64",mount_point="/Volumes/LM Studio 0.3.12-arm64"} 1669468160
-system_disk_usage_bytes{disk="Macintosh HD",mount_point="/"} 90802696473
-system_disk_usage_bytes{disk="Macintosh HD",mount_point="/System/Volumes/Data"} 90802696473
-# HELP system_memory_usage_bytes Total system memory usage in bytes
-# TYPE system_memory_usage_bytes gauge
-system_memory_usage_bytes{memory_type="used"} 21539209216
-# HELP system_network_receive_bytes_per_sec Network receive rate in bytes per second
-# TYPE system_network_receive_bytes_per_sec gauge
-system_network_receive_bytes_per_sec{interface="anpi0"} 0
-system_network_receive_bytes_per_sec{interface="anpi1"} 0
-system_network_receive_bytes_per_sec{interface="ap1"} 0
-system_network_receive_bytes_per_sec{interface="awdl0"} 0
-system_network_receive_bytes_per_sec{interface="bridge0"} 0
-system_network_receive_bytes_per_sec{interface="en0"} 24576
-system_network_receive_bytes_per_sec{interface="en1"} 0
-system_network_receive_bytes_per_sec{interface="en2"} 0
-system_network_receive_bytes_per_sec{interface="en3"} 0
-system_network_receive_bytes_per_sec{interface="en4"} 0
-system_network_receive_bytes_per_sec{interface="gif0"} 0
-system_network_receive_bytes_per_sec{interface="llw0"} 0
-system_network_receive_bytes_per_sec{interface="lo0"} 225280
-system_network_receive_bytes_per_sec{interface="stf0"} 0
-system_network_receive_bytes_per_sec{interface="utun0"} 0
-system_network_receive_bytes_per_sec{interface="utun1"} 0
-system_network_receive_bytes_per_sec{interface="utun2"} 0
-system_network_receive_bytes_per_sec{interface="utun3"} 0
-system_network_receive_bytes_per_sec{interface="utun4"} 0
-system_network_receive_bytes_per_sec{interface="utun5"} 0
-# HELP system_network_transmit_bytes_per_sec Network transmit rate in bytes per second
-# TYPE system_network_transmit_bytes_per_sec gauge
-system_network_transmit_bytes_per_sec{interface="anpi0"} 0
-system_network_transmit_bytes_per_sec{interface="anpi1"} 0
-system_network_transmit_bytes_per_sec{interface="ap1"} 0
-system_network_transmit_bytes_per_sec{interface="awdl0"} 0
-system_network_transmit_bytes_per_sec{interface="bridge0"} 0
-system_network_transmit_bytes_per_sec{interface="en0"} 10240
-system_network_transmit_bytes_per_sec{interface="en1"} 0
-system_network_transmit_bytes_per_sec{interface="en2"} 0
-system_network_transmit_bytes_per_sec{interface="en3"} 0
-system_network_transmit_bytes_per_sec{interface="en4"} 0
-system_network_transmit_bytes_per_sec{interface="gif0"} 0
-system_network_transmit_bytes_per_sec{interface="llw0"} 0
-system_network_transmit_bytes_per_sec{interface="lo0"} 225280
-system_network_transmit_bytes_per_sec{interface="stf0"} 0
-system_network_transmit_bytes_per_sec{interface="utun0"} 0
-system_network_transmit_bytes_per_sec{interface="utun1"} 0
-system_network_transmit_bytes_per_sec{interface="utun2"} 0
-system_network_transmit_bytes_per_sec{interface="utun3"} 0
-system_network_transmit_bytes_per_sec{interface="utun4"} 0
-system_network_transmit_bytes_per_sec{interface="utun5"} 0
-# HELP system_swap_usage_bytes Used swap memory in bytes
-# TYPE system_swap_usage_bytes gauge
-system_swap_usage_bytes{swap_type="used"} 8780185600
-# HELP system_total_disk_bytes Total disk space in bytes
-# TYPE system_total_disk_bytes gauge
-system_total_disk_bytes{disk="LM Studio 0.3.12-arm64",mount_point="/Volumes/LM Studio 0.3.12-arm64"} 2518507520
-system_total_disk_bytes{disk="Macintosh HD",mount_point="/"} 494384795648
-system_total_disk_bytes{disk="Macintosh HD",mount_point="/System/Volumes/Data"} 494384795648
-# HELP system_total_memory_bytes Total system memory in bytes
-# TYPE system_total_memory_bytes gauge
-system_total_memory_bytes{memory_type="total"} 25769803776
-# HELP system_total_swap_bytes Total swap memory in bytes
-# TYPE system_total_swap_bytes gauge
-system_total_swap_bytes{swap_type="total"} 9663676416
-# HELP system_uptime_seconds Total system uptime in seconds
-# TYPE system_uptime_seconds gauge
-system_uptime_seconds{type="system"} 189745
+```text
+--java-home <JAVA_HOME>   Set a custom Java home
+--full-path               Keep the full Java main class/package path
+--auto-start              Enable OS auto-start
+--disable-auto-start      Disable OS auto-start
+--no-ui                   Run without the desktop UI on Windows and macOS
 ```
 
-## FAQ
+On Linux, the server starts directly. On Windows and macOS, use `--no-ui` for a
+headless exporter process.
 
-**Q: How do I resolve a jps command failure?**
+## Prometheus
 
-A: Ensure that the `JAVA_HOME` environment variable is correctly set and that jps is accessible in your PATH.
+Example scrape configuration:
 
-**Q: What if the metrics are not updating?**
+```yaml
+scrape_configs:
+  - job_name: ferris-watch
+    scrape_interval: 60s
+    scrape_timeout: 35s
+    static_configs:
+      - targets:
+          - 127.0.0.1:29090
+```
 
-A: Check that the JVM processes are running and that ferris-watch has sufficient permissions to access the jstat
-command.
+Verify the target before opening Grafana:
+
+```bash
+curl -fsS http://127.0.0.1:29090/metrics | head
+```
+
+Concurrent scrapes use the most recently collected values while another full
+collection is running. A full collection has a 30-second application timeout.
+
+## Grafana Dashboards
+
+The repository includes two dashboards that can be imported directly into
+Grafana 10 or later:
+
+| Dashboard | File | Purpose |
+| --- | --- | --- |
+| Node Detail | [`grafana/ferris-watch-dashboard.json`](grafana/ferris-watch-dashboard.json) | Deep inspection of one Prometheus job and instance |
+| Fleet Overview | [`grafana/ferris-watch-fleet-dashboard.json`](grafana/ferris-watch-fleet-dashboard.json) | Comparison and health overview across all selected nodes |
+
+1. Add Prometheus as a Grafana datasource.
+2. Open **Dashboards > New > Import**.
+3. Upload either dashboard JSON file. Repeat the import for the second file.
+4. Select the Prometheus datasource when prompted.
+
+The **Node Detail** dashboard uses single-select job and instance filters, plus
+container, process, PID, network interface, and disk filters. It includes:
+
+- service availability and host resource overview;
+- per-process CPU, memory, lifecycle, TCP, and file descriptor utilization;
+- JVM memory pool utilization plus raw Eden, survivor, old generation, metaspace, and compressed class usage and capacity;
+- cumulative and per-second GC counts, cumulative GC time, and GC time percentage;
+- JVM threads, code cache size and utilization, safepoints, application time, and runtime counters;
+- class counts, class bytes, class loading time, JIT counters, and JIT compilation time;
+- per-core CPU, memory, swap, disk, network, TCP state, and SMART panels;
+- network, operating system, and exporter inventory;
+- TCP, ICMP, and HTTP probe health, latency, status, certificate, and failure-phase panels.
+
+The Node Detail `Process` and `PID` filters are multi-select and include an
+`All` option. Every JVM detail query applies both filters, and each legend
+includes the process name and PID so several JVMs can be compared without
+merging their series. The JVM detail rows expose every `metric_name` currently
+produced by the GC, class, compiler, and runtime collectors.
+
+The **Fleet Overview** dashboard defaults to all jobs and instances. It keeps
+the `instance` label in aggregate queries and uses Top 10 views for
+high-cardinality process data. It includes:
+
+- monitored node, service, JVM, and probe status summaries;
+- live anomaly tables identifying affected nodes, services, processes, disks, and probe targets;
+- CPU, memory, swap, disk, file descriptor, uptime, network, and TCP comparisons by node;
+- process CPU, memory, uptime, TCP state, and file descriptor rankings;
+- fleet-wide JVM overview plus complete memory pool, GC, runtime, class, and compiler detail rows;
+- probe comparisons and node, exporter, disk, and network interface inventory.
+
+The fleet anomaly tables always show the affected labels and current value, not
+only a count. They include offline services, failed probes, unexpected HTTP
+status codes, certificates with less than seven days remaining, SMART failures,
+and resource thresholds. Default warning thresholds are 85% CPU, 90% memory,
+85% swap, 90% disk, and 80% file descriptor utilization. JVM and process
+thresholds are 80% process CPU, 20% process memory, 80% process file
+descriptors, 85% old generation utilization, 10% GC time, and 10% safepoint
+overhead; active JIT failures are also listed.
+
+Fleet JVM panels expose the same GC, class, compiler, and runtime fields as the
+Node Detail dashboard. Their legends retain instance, process name, and PID.
+The fleet `JVM PID` filter supports multiple selections, while `JVM Top N` controls
+the number of process-level series shown per detailed metric (`5`, `10`, `20`,
+or `50`, default `10`) so broad node selections remain readable.
+
+## Metrics
+
+Prometheus adds the configured `job` and `instance` labels. Process metrics
+normally include `container`, `pid`, and `process_name`. JVM metric families
+also include `metric_name`.
+
+### JVM Metrics
+
+| Metric | `metric_name` values | Description |
+| --- | --- | --- |
+| `jstat_gc_metrics` | `S0C`, `S1C`, `S0U`, `S1U`, `EC`, `EU`, `OC`, `OU`, `MC`, `MU`, `CCSC`, `CCSU` | JVM memory pool capacity and usage in KB |
+| `jstat_gc_metrics` | `YGC`, `FGC`, `CGC` | Collector invocation counters |
+| `jstat_gc_metrics` | `YGCT`, `FGCT`, `CGCT`, `GCT` | Collector and total GC time in seconds |
+| `jstat_class_metrics` | `Loaded`, `BytesLoaded`, `Unloaded`, `BytesUnloaded`, `Time` | Class loading counters, KB, and elapsed seconds |
+| `jstat_compiler_metrics` | `Compiled`, `Failed`, `Invalid`, `Time` | JIT compilation counters and elapsed seconds |
+| `jstat_runtime_metrics` | `ThreadsLive`, `ThreadsDaemon`, `ThreadsPeak` | JVM thread counts |
+| `jstat_runtime_metrics` | `CodeCacheUsed`, `CodeCacheCapacity`, `CodeCacheUtilization` | Code cache KB and utilization ratio |
+| `jstat_runtime_metrics` | `Safepoints`, `SafepointTimeSeconds`, `SafepointOverhead`, `AppTimeSenconds` | Safepoint and application runtime data |
+
+The collector slots behind `YGC`, `FGC`, and `CGC` are JVM and garbage
+collector dependent. They retain jstat-compatible names for compatibility.
+`CodeCacheUtilization` and `SafepointOverhead` are ratios from `0` to `1`.
+
+Host JVMs expose all four families through `jmon-rs`. Container JVMs expose
+the supported `jstat` families available inside the container.
+
+### Process Metrics
+
+| Metric | Description |
+| --- | --- |
+| `process_online_status` | Process availability, where `1` is online and `0` is offline |
+| `process_cpu_usage` | Process CPU usage percentage |
+| `process_memory_usage_bytes` | Process resident memory in bytes |
+| `process_memory_usage_percentage` | Percentage of host memory used by the process |
+| `process_start_time_seconds` | Unix process start timestamp |
+| `process_up_time_seconds` | Process uptime in seconds |
+| `process_open_file` | Open file descriptor count |
+| `process_open_file_limit` | File descriptor limit |
+| `process_tcp_connection_states` | TCP connection count by `state` |
+
+### Host Metrics
+
+| Metric | Description |
+| --- | --- |
+| `system_cpu_usage_percentage` | CPU usage by logical CPU |
+| `system_memory_usage_bytes` | Used host memory |
+| `system_total_memory_bytes` | Total host memory |
+| `system_swap_usage_bytes` | Used swap |
+| `system_total_swap_bytes` | Total swap |
+| `system_disk_usage_bytes` | Used disk space by disk and mount point |
+| `system_total_disk_bytes` | Total disk space by disk and mount point |
+| `system_disk_smart_health_status` | Windows disk SMART status |
+| `system_network_receive_bytes_per_sec` | Receive throughput by interface |
+| `system_network_transmit_bytes_per_sec` | Transmit throughput by interface |
+| `system_network_receive_bytes_total` | Total received bytes by interface |
+| `system_network_transmit_bytes_total` | Total transmitted bytes by interface |
+| `system_network_link_speed` | Interface link speed in Mbps |
+| `system_network_interface_info` | Interface metadata and addresses |
+| `system_open_file` | System open file count |
+| `system_open_file_limit` | System open file limit |
+| `system_tcp_connection_states` | Host TCP connection count by `state` |
+| `system_uptime_seconds` | Host uptime |
+| `os_version_info` | OS type, release, version, and architecture |
+| `ferris_watch_version` | Exporter version information |
+
+### Probe Metrics
+
+| Metric | Description |
+| --- | --- |
+| `probe_tcp_success` | TCP probe success status |
+| `probe_tcp_duration_seconds` | TCP connection duration |
+| `probe_ping_success` | ICMP ping success status |
+| `probe_ping_duration_seconds` | ICMP ping duration |
+| `probe_http_success` | HTTP probe success status |
+| `probe_http_duration_seconds` | HTTP probe duration |
+| `probe_http_status_code` | HTTP response status code |
+| `probe_http_ssl_earliest_cert_expiry` | Remaining certificate lifetime in seconds |
+| `probe_http_phase_failures_total` | HTTP failures by phase |
+
+Probe examples:
+
+```bash
+curl 'http://127.0.0.1:29090/probe?module=tcp&target=example.com:443'
+curl 'http://127.0.0.1:29090/probe?module=ping&target=1.1.1.1'
+curl 'http://127.0.0.1:29090/probe?module=http&target=https://example.com'
+```
+
+## PromQL Examples
+
+Old generation utilization percentage:
+
+```promql
+100 * jstat_gc_metrics{metric_name="OU"}
+  / ignoring(metric_name)
+    clamp_min(jstat_gc_metrics{metric_name="OC"}, 1)
+```
+
+GC events per second:
+
+```promql
+rate(jstat_gc_metrics{metric_name=~"YGC|FGC|CGC"}[5m])
+```
+
+Percentage of time spent in GC:
+
+```promql
+100 * rate(jstat_gc_metrics{metric_name=~"YGCT|FGCT|CGCT"}[5m])
+```
+
+Process file descriptor utilization:
+
+```promql
+100 * process_open_file / clamp_min(process_open_file_limit, 1)
+```
+
+Host memory utilization:
+
+```promql
+100 * sum(system_memory_usage_bytes) / sum(system_total_memory_bytes)
+```
+
+## HTTP Endpoints
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /metrics` | Collect and expose Prometheus metrics |
+| `GET /config` | Return the active configuration |
+| `POST /config` | Replace the in-memory configuration |
+| `GET /probe?module=<module>&target=<target>` | Run a TCP, ping, or HTTP probe |
+
+## Troubleshooting
+
+### A host JVM is missing
+
+Confirm that the exporter user can read `/proc/<pid>` and the JVM's
+`hsperfdata` file. On Linux, also check `hidepid` mount options and service
+sandboxing restrictions.
+
+### Container JVM metrics are missing
+
+Enable `detect_docker_processes`, verify that Docker or `crictl` is available,
+and confirm that `jps` and `jstat` exist inside the container.
+
+### Prometheus scrapes time out
+
+Avoid multiple Prometheus jobs scraping the same exporter at a high frequency.
+Check exporter logs for JVM discovery, socket collection, permissions, and
+container command failures.
+
+### Metrics disappear after a JVM restart
+
+JVM series include the PID. A restarted JVM receives a new series, while the
+old PID's metrics are removed. Select the new PID in Grafana or use queries that
+aggregate by `process_name`.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
+Licensed under the Apache License 2.0. See [LICENSE](LICENSE).

@@ -1,0 +1,1071 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus datasource containing ferris-watch metrics",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "panels": [],
+      "title": "Fleet overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "count(count by (instance) (ferris_watch_version{job=~\"$job\",instance=~\"$instance\"}))", "legendFormat": "nodes", "range": true, "refId": "A" }],
+      "title": "Monitored nodes",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(process_online_status{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"})", "legendFormat": "online", "range": true, "refId": "A" }],
+      "title": "Online services",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "count(process_online_status{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"} == 0)", "legendFormat": "offline", "range": true, "refId": "A" }],
+      "title": "Offline services",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 5,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "count(count by (instance, container, pid, process_name) (jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=\"ThreadsLive\"}))", "legendFormat": "JVMs", "range": true, "refId": "A" }],
+      "title": "Discovered JVMs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 6,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [
+        { "editorMode": "code", "expr": "count(probe_tcp_success{job=~\"$job\",instance=~\"$instance\"} == 0)", "legendFormat": "TCP", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "count(probe_ping_success{job=~\"$job\",instance=~\"$instance\"} == 0)", "legendFormat": "Ping", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "count(probe_http_success{job=~\"$job\",instance=~\"$instance\"} == 0)", "legendFormat": "HTTP", "range": true, "refId": "C" }
+      ],
+      "title": "Failed probes",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 86400 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 7,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "min(max by (instance) (system_uptime_seconds{job=~\"$job\",instance=~\"$instance\"}))", "legendFormat": "minimum uptime", "range": true, "refId": "A" }],
+      "title": "Minimum node uptime",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 44,
+      "panels": [],
+      "title": "Current anomalies",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Monitored services currently reporting process_online_status = 0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "color-background" }, "inspect": false },
+          "mappings": [{ "options": { "0": { "color": "red", "text": "Offline" } }, "type": "value" }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 45,
+      "options": { "cellHeight": "sm", "footer": { "countRows": true, "enablePagination": true, "fields": "", "reducer": ["count"], "show": true }, "showHeader": true },
+      "targets": [{ "editorMode": "code", "expr": "process_online_status{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"} == 0", "format": "table", "instant": true, "legendFormat": "offline", "refId": "A" }],
+      "title": "Offline services",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Failed TCP, ping, or HTTP probes, unexpected HTTP status codes, and TLS certificates with less than seven days remaining.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "color-background" }, "inspect": false },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 46,
+      "options": { "cellHeight": "sm", "footer": { "countRows": true, "enablePagination": true, "fields": "", "reducer": ["count"], "show": true }, "showHeader": true },
+      "targets": [{
+        "editorMode": "code",
+        "expr": "label_replace((probe_tcp_success{job=~\"$job\",instance=~\"$instance\"} == 0), \"issue\", \"TCP probe failed\", \"host\", \".*\") or label_replace((probe_ping_success{job=~\"$job\",instance=~\"$instance\"} == 0), \"issue\", \"Ping probe failed\", \"host\", \".*\") or label_replace((probe_http_success{job=~\"$job\",instance=~\"$instance\"} == 0), \"issue\", \"HTTP probe failed\", \"target\", \".*\") or label_replace((probe_http_status_code{job=~\"$job\",instance=~\"$instance\"} < 200 or probe_http_status_code{job=~\"$job\",instance=~\"$instance\"} >= 400), \"issue\", \"Unexpected HTTP status\", \"target\", \".*\") or label_replace(((probe_http_ssl_earliest_cert_expiry{job=~\"$job\",instance=~\"$instance\"} >= 0) and (probe_http_ssl_earliest_cert_expiry{job=~\"$job\",instance=~\"$instance\"} < 604800)), \"issue\", \"TLS certificate < 7 days\", \"target\", \".*\")",
+        "format": "table",
+        "instant": true,
+        "legendFormat": "{{issue}}",
+        "refId": "A"
+      }],
+      "title": "Probe and certificate anomalies",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Nodes breaching fleet thresholds: CPU 85%, memory 90%, swap 85%, disk 90%, system file descriptors 80%, or failing SMART health.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "color-background" }, "inspect": false },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "id": 47,
+      "options": { "cellHeight": "sm", "footer": { "countRows": true, "enablePagination": true, "fields": "", "reducer": ["count"], "show": true }, "showHeader": true },
+      "targets": [{
+        "editorMode": "code",
+        "expr": "label_replace((avg by (instance) (system_cpu_usage_percentage{job=~\"$job\",instance=~\"$instance\"}) >= 85), \"issue\", \"CPU >= 85%\", \"instance\", \".*\") or label_replace((100 * sum by (instance) (system_memory_usage_bytes{job=~\"$job\",instance=~\"$instance\"}) / clamp_min(sum by (instance) (system_total_memory_bytes{job=~\"$job\",instance=~\"$instance\"}), 1) >= 90), \"issue\", \"Memory >= 90%\", \"instance\", \".*\") or label_replace((100 * sum by (instance) (system_swap_usage_bytes{job=~\"$job\",instance=~\"$instance\"}) / clamp_min(sum by (instance) (system_total_swap_bytes{job=~\"$job\",instance=~\"$instance\"}), 1) >= 85), \"issue\", \"Swap >= 85%\", \"instance\", \".*\") or label_replace((100 * system_disk_usage_bytes{job=~\"$job\",instance=~\"$instance\",disk=~\"$disk\"} / clamp_min(system_total_disk_bytes{job=~\"$job\",instance=~\"$instance\",disk=~\"$disk\"}, 1) >= 90), \"issue\", \"Disk >= 90%\", \"instance\", \".*\") or label_replace((100 * sum by (instance) (system_open_file{job=~\"$job\",instance=~\"$instance\"}) / clamp_min(sum by (instance) (system_open_file_limit{job=~\"$job\",instance=~\"$instance\"}), 1) >= 80), \"issue\", \"System FDs >= 80%\", \"instance\", \".*\") or label_replace((system_disk_smart_health_status{job=~\"$job\",instance=~\"$instance\",disk=~\"$disk\"} == 0), \"issue\", \"SMART health failed\", \"instance\", \".*\")",
+        "format": "table",
+        "instant": true,
+        "legendFormat": "{{issue}}",
+        "refId": "A"
+      }],
+      "title": "Node resource anomalies",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Processes or JVMs breaching fleet thresholds: process CPU 80%, process memory 20%, process file descriptors 80%, old generation 85%, GC time 10%, safepoint overhead 10%, or active JIT failures.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "color-background" }, "inspect": false },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "id": 48,
+      "options": { "cellHeight": "sm", "footer": { "countRows": true, "enablePagination": true, "fields": "", "reducer": ["count"], "show": true }, "showHeader": true },
+      "targets": [{
+        "editorMode": "code",
+        "expr": "label_replace((process_cpu_usage{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"} >= 80), \"issue\", \"Process CPU >= 80%\", \"instance\", \".*\") or label_replace((process_memory_usage_percentage{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"} >= 20), \"issue\", \"Process memory >= 20%\", \"instance\", \".*\") or label_replace((100 * process_open_file{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"} / clamp_min(process_open_file_limit{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"}, 1) >= 80), \"issue\", \"Process FDs >= 80%\", \"instance\", \".*\") or label_replace((100 * jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=\"OU\"} / ignoring(metric_name) clamp_min(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=\"OC\"}, 1) >= 85), \"issue\", \"Old generation >= 85%\", \"instance\", \".*\") or label_replace((100 * rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=\"GCT\"}[$__rate_interval]) >= 10), \"issue\", \"GC time >= 10%\", \"instance\", \".*\") or label_replace((100 * jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=\"SafepointOverhead\"} >= 10), \"issue\", \"Safepoint overhead >= 10%\", \"instance\", \".*\") or label_replace((rate(jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=~\"Failed|Invalid\"}[$__rate_interval]) > 0), \"issue\", \"JIT failure detected\", \"instance\", \".*\")",
+        "format": "table",
+        "instant": true,
+        "legendFormat": "{{issue}}",
+        "refId": "A"
+      }],
+      "title": "JVM and process anomalies",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 8,
+      "panels": [],
+      "title": "Host resources by node",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "avg by (instance) (system_cpu_usage_percentage{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "CPU utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum by (instance) (system_memory_usage_bytes{job=~\"$job\",instance=~\"$instance\"}) / clamp_min(sum by (instance) (system_total_memory_bytes{job=~\"$job\",instance=~\"$instance\"}), 1)", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "Memory utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum by (instance) (system_swap_usage_bytes{job=~\"$job\",instance=~\"$instance\"}) / clamp_min(sum by (instance) (system_total_swap_bytes{job=~\"$job\",instance=~\"$instance\"}), 1)", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "Swap utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 31 },
+      "id": 12,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "100 * system_disk_usage_bytes{job=~\"$job\",instance=~\"$instance\",disk=~\"$disk\"} / clamp_min(system_total_disk_bytes{job=~\"$job\",instance=~\"$instance\",disk=~\"$disk\"}, 1)", "legendFormat": "{{instance}} {{disk}} {{mount_point}}", "range": true, "refId": "A" }],
+      "title": "Disk utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 31 },
+      "id": 13,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum by (instance) (system_open_file{job=~\"$job\",instance=~\"$instance\"}) / clamp_min(sum by (instance) (system_open_file_limit{job=~\"$job\",instance=~\"$instance\"}), 1)", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "System file descriptor utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 31 },
+      "id": 14,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "max by (instance) (system_uptime_seconds{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "Node uptime",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "Bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
+      "id": 15,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum by (instance) (system_network_receive_bytes_per_sec{job=~\"$job\",instance=~\"$instance\",interface=~\"$interface\"})", "legendFormat": "RX {{instance}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum by (instance) (system_network_transmit_bytes_per_sec{job=~\"$job\",instance=~\"$instance\",interface=~\"$interface\"})", "legendFormat": "TX {{instance}}", "range": true, "refId": "B" }
+      ],
+      "title": "Network throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
+      "id": 16,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum by (instance) (system_network_receive_bytes_total{job=~\"$job\",instance=~\"$instance\",interface=~\"$interface\"})", "legendFormat": "RX total {{instance}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum by (instance) (system_network_transmit_bytes_total{job=~\"$job\",instance=~\"$instance\",interface=~\"$interface\"})", "legendFormat": "TX total {{instance}}", "range": true, "refId": "B" }
+      ],
+      "title": "Network byte counters",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "Mbps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 47 },
+      "id": 17,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "system_network_link_speed{job=~\"$job\",instance=~\"$instance\",interface=~\"$interface\"}", "legendFormat": "{{instance}} {{interface}}", "range": true, "refId": "A" }],
+      "title": "Network link speed",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 47 },
+      "id": 18,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (instance, state) (system_tcp_connection_states{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "{{instance}} {{state}}", "range": true, "refId": "A" }],
+      "title": "System TCP states",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [{ "options": { "0": { "color": "red", "text": "Failing" }, "1": { "color": "green", "text": "Healthy" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 47 },
+      "id": 19,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "system_disk_smart_health_status{job=~\"$job\",instance=~\"$instance\",disk=~\"$disk\"}", "legendFormat": "{{instance}} {{disk}}", "range": true, "refId": "A" }],
+      "title": "Disk SMART health",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
+      "id": 20,
+      "panels": [],
+      "title": "Processes across nodes",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 56 },
+      "id": 21,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, process_cpu_usage{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"})", "legendFormat": "{{instance}} {{process_name}} ({{pid}})", "range": true, "refId": "A" }],
+      "title": "Top process CPU",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 56 },
+      "id": 22,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, process_memory_usage_bytes{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"})", "legendFormat": "{{instance}} {{process_name}} ({{pid}})", "range": true, "refId": "A" }],
+      "title": "Top process memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 56 },
+      "id": 23,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, process_memory_usage_percentage{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"})", "legendFormat": "{{instance}} {{process_name}} ({{pid}})", "range": true, "refId": "A" }],
+      "title": "Top process memory utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 64 },
+      "id": 24,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, 100 * process_open_file{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"} / clamp_min(process_open_file_limit{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"}, 1))", "legendFormat": "{{instance}} {{process_name}} ({{pid}})", "range": true, "refId": "A" }],
+      "title": "Top process file descriptor utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 64 },
+      "id": 25,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, process_up_time_seconds{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"})", "legendFormat": "{{instance}} {{process_name}} ({{pid}})", "range": true, "refId": "A" }],
+      "title": "Longest-running processes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 64 },
+      "id": 26,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (instance, process_name, state) (process_tcp_connection_states{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"})", "legendFormat": "{{instance}} {{process_name}} {{state}}", "range": true, "refId": "A" }],
+      "title": "Process TCP states",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 72 },
+      "id": 27,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "enablePagination": true, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
+      "targets": [
+        { "editorMode": "code", "expr": "process_online_status{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"}", "format": "table", "instant": true, "legendFormat": "status", "refId": "A" },
+        { "editorMode": "code", "expr": "process_start_time_seconds{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\"}", "format": "table", "instant": true, "legendFormat": "start", "refId": "B" }
+      ],
+      "title": "Process availability and start time",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 80 },
+      "id": 28,
+      "panels": [],
+      "title": "JVM fleet",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 81 },
+      "id": 29,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"EU\"} / ignoring(metric_name) clamp_min(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"EC\"}, 1))", "legendFormat": "Eden {{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"OU\"} / ignoring(metric_name) clamp_min(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"OC\"}, 1))", "legendFormat": "Old {{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"MU\"} / ignoring(metric_name) clamp_min(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"MC\"}, 1))", "legendFormat": "Metaspace {{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "C" }
+      ],
+      "title": "Top JVM memory pool utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 81 },
+      "id": 30,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (instance, metric_name) (rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=~\"YGC|FGC|CGC\"}[$__rate_interval]))", "legendFormat": "{{instance}} {{metric_name}}", "range": true, "refId": "A" }],
+      "title": "GC event rate overview",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 89 },
+      "id": 31,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum by (instance, metric_name) (rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=~\"YGCT|FGCT|CGCT|GCT\"}[$__rate_interval]))", "legendFormat": "{{instance}} {{metric_name}}", "range": true, "refId": "A" }],
+      "title": "GC time overview",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 89 },
+      "id": 32,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (instance, metric_name) (jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=~\"ThreadsLive|ThreadsDaemon|ThreadsPeak\"})", "legendFormat": "{{instance}} {{metric_name}}", "range": true, "refId": "A" }],
+      "title": "JVM thread overview",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 89 },
+      "id": 33,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "100 * max by (instance) (jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CodeCacheUtilization\"})", "legendFormat": "Code cache {{instance}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "100 * max by (instance) (jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"SafepointOverhead\"})", "legendFormat": "Safepoint {{instance}}", "range": true, "refId": "B" }
+      ],
+      "title": "Runtime overhead overview",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 97 },
+      "id": 34,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum by (instance, metric_name) (rate(jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=~\"Loaded|BytesLoaded|Unloaded|BytesUnloaded\"}[$__rate_interval]))", "legendFormat": "Class {{instance}} {{metric_name}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum by (instance, metric_name) (rate(jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=~\"Compiled|Failed|Invalid\"}[$__rate_interval]))", "legendFormat": "Compiler {{instance}} {{metric_name}}", "range": true, "refId": "B" }
+      ],
+      "title": "Class and compiler rate overview",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 97 },
+      "id": 35,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "enablePagination": true, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
+      "targets": [
+        { "editorMode": "code", "expr": "jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\"}", "format": "table", "instant": true, "refId": "A" },
+        { "editorMode": "code", "expr": "jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Time\"}", "format": "table", "instant": true, "refId": "B" },
+        { "editorMode": "code", "expr": "jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Time\"}", "format": "table", "instant": true, "refId": "C" }
+      ],
+      "title": "JVM runtime and elapsed counters",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 105 },
+      "id": 49,
+      "panels": [],
+      "title": "JVM memory pools across nodes",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top selected JVMs by Eden used (EU) and capacity (EC).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 106 },
+      "id": 50,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"EU\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - EU", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"EC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - EC", "range": true, "refId": "B" }
+      ],
+      "title": "Eden space (EU / EC)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top selected JVMs by survivor space 0 used (S0U) and capacity (S0C).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 106 },
+      "id": 51,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"S0U\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - S0U", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"S0C\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - S0C", "range": true, "refId": "B" }
+      ],
+      "title": "Survivor 0 (S0U / S0C)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top selected JVMs by survivor space 1 used (S1U) and capacity (S1C).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 106 },
+      "id": 52,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"S1U\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - S1U", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"S1C\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - S1C", "range": true, "refId": "B" }
+      ],
+      "title": "Survivor 1 (S1U / S1C)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top selected JVMs by old generation used (OU) and capacity (OC).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 114 },
+      "id": 53,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"OU\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - OU", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"OC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - OC", "range": true, "refId": "B" }
+      ],
+      "title": "Old generation (OU / OC)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top selected JVMs by metaspace used (MU) and capacity (MC).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 114 },
+      "id": 54,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"MU\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - MU", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"MC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - MC", "range": true, "refId": "B" }
+      ],
+      "title": "Metaspace (MU / MC)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top selected JVMs by compressed class used (CCSU) and capacity (CCSC).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 114 },
+      "id": 55,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CCSU\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CCSU", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CCSC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CCSC", "range": true, "refId": "B" }
+      ],
+      "title": "Compressed class (CCSU / CCSC)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 122 },
+      "id": 56,
+      "panels": [],
+      "title": "JVM garbage collection across nodes",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top cumulative young, full, and concurrent collection counters.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 123 },
+      "id": 57,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"YGC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - YGC", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"FGC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - FGC", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CGC\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CGC", "range": true, "refId": "C" }
+      ],
+      "title": "GC invocation counters",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top cumulative young, full, concurrent, and total collection time.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 123 },
+      "id": 58,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"YGCT\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - YGCT", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"FGCT\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - FGCT", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CGCT\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CGCT", "range": true, "refId": "C" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"GCT\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - GCT", "range": true, "refId": "D" }
+      ],
+      "title": "Cumulative GC time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top per-second rates for young, full, and concurrent collection events.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 131 },
+      "id": 59,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"YGC\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - YGC", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"FGC\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - FGC", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CGC\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CGC", "range": true, "refId": "C" }
+      ],
+      "title": "GC events per second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top percentage of wall-clock time spent in each collector and in GC overall.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 131 },
+      "id": 60,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"YGCT\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - YGCT", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"FGCT\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - FGCT", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CGCT\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CGCT", "range": true, "refId": "C" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, 100 * rate(jstat_gc_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"GCT\"}[$__rate_interval]))", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - GCT", "range": true, "refId": "D" }
+      ],
+      "title": "GC time percentage",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 139 },
+      "id": 61,
+      "panels": [],
+      "title": "JVM runtime across nodes",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top live, daemon, and peak thread counts across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 140 },
+      "id": 62,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"ThreadsLive\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - ThreadsLive", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"ThreadsDaemon\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - ThreadsDaemon", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"ThreadsPeak\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - ThreadsPeak", "range": true, "refId": "C" }
+      ],
+      "title": "Threads",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top code cache used and capacity values across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 140 },
+      "id": 63,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CodeCacheUsed\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CodeCacheUsed", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CodeCacheCapacity\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - CodeCacheCapacity", "range": true, "refId": "B" }
+      ],
+      "title": "Code cache size",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top code cache utilization across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 140 },
+      "id": 64,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk($jvm_topk, 100 * jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"CodeCacheUtilization\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "A" }],
+      "title": "Code cache utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top cumulative safepoint counts across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 148 },
+      "id": 65,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Safepoints\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "A" }],
+      "title": "Safepoint count",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top cumulative application runtime and safepoint time across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 148 },
+      "id": 66,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"AppTimeSenconds\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - AppTimeSenconds", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"SafepointTimeSeconds\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - SafepointTimeSeconds", "range": true, "refId": "B" }
+      ],
+      "title": "Application and safepoint time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top safepoint overhead across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 100, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 148 },
+      "id": 67,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk($jvm_topk, 100 * jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"SafepointOverhead\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "A" }],
+      "title": "Safepoint overhead",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 156 },
+      "id": 68,
+      "panels": [],
+      "title": "JVM class loading and compiler across nodes",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top loaded and unloaded class counts across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 157 },
+      "id": 69,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Loaded\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - Loaded", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Unloaded\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - Unloaded", "range": true, "refId": "B" }
+      ],
+      "title": "Loaded and unloaded classes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top class bytes loaded and unloaded across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "kbytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 157 },
+      "id": 70,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"BytesLoaded\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - BytesLoaded", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"BytesUnloaded\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - BytesUnloaded", "range": true, "refId": "B" }
+      ],
+      "title": "Class bytes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top cumulative class loading time across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 157 },
+      "id": 71,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk($jvm_topk, jstat_class_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Time\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "A" }],
+      "title": "Class loading time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top successful, failed, and invalidated JIT compilation counters.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 165 },
+      "id": 72,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Compiled\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - Compiled", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Failed\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - Failed", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "topk($jvm_topk, jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Invalid\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}}) - Invalid", "range": true, "refId": "C" }
+      ],
+      "title": "JIT compilation counters",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Top cumulative JIT compilation time across selected JVMs.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 165 },
+      "id": 73,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk($jvm_topk, jstat_compiler_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",pid=~\"$pid\",metric_name=\"Time\"})", "legendFormat": "{{instance}} - {{process_name}} (pid {{pid}})", "range": true, "refId": "A" }],
+      "title": "JIT compilation time",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 173 },
+      "id": 36,
+      "panels": [],
+      "title": "Probe fleet",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "max": 1, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 174 },
+      "id": 37,
+      "options": { "legend": { "calcs": ["lastNotNull", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "asc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "probe_tcp_success{job=~\"$job\",instance=~\"$instance\"}", "legendFormat": "TCP {{instance}} {{host}}:{{port}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "probe_ping_success{job=~\"$job\",instance=~\"$instance\"}", "legendFormat": "Ping {{instance}} {{host}}", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "probe_http_success{job=~\"$job\",instance=~\"$instance\"}", "legendFormat": "HTTP {{instance}} {{target}}", "range": true, "refId": "C" }
+      ],
+      "title": "Probe success",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 174 },
+      "id": 38,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "probe_tcp_duration_seconds{job=~\"$job\",instance=~\"$instance\"}", "legendFormat": "TCP {{instance}} {{host}}:{{port}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "probe_ping_duration_seconds{job=~\"$job\",instance=~\"$instance\"}", "legendFormat": "Ping {{instance}} {{host}}", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "probe_http_duration_seconds{job=~\"$job\",instance=~\"$instance\"}", "legendFormat": "HTTP {{instance}} {{target}}", "range": true, "refId": "C" }
+      ],
+      "title": "Probe duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 200 }, { "color": "red", "value": 400 }] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 182 },
+      "id": 39,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "enablePagination": true, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
+      "targets": [
+        { "editorMode": "code", "expr": "probe_http_status_code{job=~\"$job\",instance=~\"$instance\"}", "format": "table", "instant": true, "refId": "A" },
+        { "editorMode": "code", "expr": "probe_http_ssl_earliest_cert_expiry{job=~\"$job\",instance=~\"$instance\"}", "format": "table", "instant": true, "refId": "B" }
+      ],
+      "title": "HTTP status and certificate lifetime",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "bars", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never", "spanNulls": true }, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 182 },
+      "id": 40,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (instance, target, phase) (rate(probe_http_phase_failures_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "{{instance}} {{target}} {{phase}}", "range": true, "refId": "A" }],
+      "title": "HTTP probe failures by phase",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 190 },
+      "id": 41,
+      "panels": [],
+      "title": "Fleet inventory",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 191 },
+      "id": 42,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "enablePagination": true, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
+      "targets": [{ "editorMode": "code", "expr": "system_network_interface_info{job=~\"$job\",instance=~\"$instance\",interface=~\"$interface\"}", "format": "table", "instant": true, "refId": "A" }],
+      "title": "Network interface inventory",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 191 },
+      "id": 43,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "enablePagination": true, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
+      "targets": [
+        { "editorMode": "code", "expr": "os_version_info{job=~\"$job\",instance=~\"$instance\"}", "format": "table", "instant": true, "legendFormat": "OS", "refId": "A" },
+        { "editorMode": "code", "expr": "ferris_watch_version{job=~\"$job\",instance=~\"$instance\"}", "format": "table", "instant": true, "legendFormat": "Exporter", "refId": "B" }
+      ],
+      "title": "Node and exporter metadata",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["ferris-watch", "JVM", "fleet"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Job",
+        "multi": true,
+        "name": "job",
+        "options": [],
+        "query": { "query": "label_values(ferris_watch_version, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instance",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": { "query": "label_values(ferris_watch_version{job=~\"$job\"}, instance)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Container",
+        "multi": true,
+        "name": "container",
+        "options": [],
+        "query": { "query": "label_values(process_cpu_usage{job=~\"$job\",instance=~\"$instance\"}, container)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Process",
+        "multi": true,
+        "name": "process",
+        "options": [],
+        "query": { "query": "label_values(process_cpu_usage{job=~\"$job\",instance=~\"$instance\",container=~\"$container\"}, process_name)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "JVM PID",
+        "multi": true,
+        "name": "pid",
+        "options": [],
+        "query": { "query": "label_values(jstat_runtime_metrics{job=~\"$job\",instance=~\"$instance\",container=~\"$container\",process_name=~\"$process\",metric_name=\"ThreadsLive\"}, pid)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 3,
+        "type": "query"
+      },
+      {
+        "current": { "selected": true, "text": "10", "value": "10" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "JVM Top N",
+        "multi": false,
+        "name": "jvm_topk",
+        "options": [
+          { "selected": false, "text": "5", "value": "5" },
+          { "selected": true, "text": "10", "value": "10" },
+          { "selected": false, "text": "20", "value": "20" },
+          { "selected": false, "text": "50", "value": "50" }
+        ],
+        "query": "5,10,20,50",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Interface",
+        "multi": true,
+        "name": "interface",
+        "options": [],
+        "query": { "query": "label_values(system_network_receive_bytes_total{job=~\"$job\",instance=~\"$instance\"}, interface)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Disk",
+        "multi": true,
+        "name": "disk",
+        "options": [],
+        "query": { "query": "label_values(system_total_disk_bytes{job=~\"$job\",instance=~\"$instance\"}, disk)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ferris-watch / Fleet Overview",
+  "uid": "ferris-watch-fleet-overview",
+  "version": 1,
+  "weekStart": ""
+}

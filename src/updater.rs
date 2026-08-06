@@ -86,7 +86,9 @@ pub async fn check_for_update(
 
 pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     info!("Downloading update from: {}", download_url);
-    let response = ureq::get(download_url).call()?;
+    let response = ureq::get(download_url)
+        .timeout(std::time::Duration::from_secs(300))
+        .call()?;
     if response.status() != 200 {
         return Err(format!("Failed to download update: HTTP {}", response.status()).into());
     }
@@ -122,7 +124,9 @@ pub async fn download_update(download_url: &str) -> Result<PathBuf, Box<dyn Erro
 }
 
 async fn fetch_latest_version(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let response = ureq::get(url).call()?;
+    let response = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(30))
+        .call()?;
     if response.status() == 200 {
         let json_response: serde_json::Value = serde_json::from_str(&response.into_string()?)?;
         // Assuming the version is in a "version" field in the JSON

@@ -27,8 +27,26 @@ pub(crate) async fn handle_metrics(
     java_home: Arc<Option<String>>,
     full_path: bool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    if let Err(err) = update_metrics(metrics.clone(), java_home.as_deref(), full_path).await {
-        error!("Failed to update metrics: {}", err);
+    // Single-flight: if a collection is already running, serve the last collected
+    // values instead of stacking another full collection on top of it.
+    match metrics.collect_lock.try_lock() {
+        Ok(_guard) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                update_metrics(metrics.clone(), java_home.as_deref(), full_path),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => error!("Failed to update metrics: {}", err),
+                Err(_) => {
+                    error!("Metrics collection timed out after 30s, serving last collected values")
+                }
+            }
+        }
+        Err(_) => {
+            info!("Metrics collection already in progress, serving last collected values");
+        }
     }
 
     let mut buffer = Vec::new();
@@ -53,7 +71,29 @@ async fn update_metrics(
 
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP;
-    let sockets = get_sockets_info(af_flags, proto_flags)?;
+    // get_sockets_info is a synchronous, potentially blocking call (its Linux netlink
+    // implementation can hang forever if the NLMSG_DONE marker is lost). Run it on the
+    // blocking pool with a timeout so a hang cannot wedge the tokio worker threads.
+    let sockets = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || get_sockets_info(af_flags, proto_flags)),
+    )
+    .await
+    {
+        Ok(Ok(Ok(sockets))) => sockets,
+        Ok(Ok(Err(e))) => {
+            warn!("Failed to collect socket info: {}; skipping TCP metrics", e);
+            Vec::new()
+        }
+        Ok(Err(e)) => {
+            warn!("Socket collection task failed: {}; skipping TCP metrics", e);
+            Vec::new()
+        }
+        Err(_) => {
+            warn!("Socket collection timed out; skipping TCP metrics for this scrape");
+            Vec::new()
+        }
+    };
 
     let host_processes;
     // 1. Collect Host Processes
@@ -195,6 +235,9 @@ async fn update_metrics(
             &process_name,
         )
         .await;
+        if container == "host" {
+            metrics.jvm_monitors.remove(pid);
+        }
     }
 
     {
@@ -526,114 +569,121 @@ async fn fetch_and_update_jstat_host(
     metrics: &Arc<Metrics>,
 ) -> Result<HashMap<&'static str, HashSet<String>>, Box<dyn std::error::Error + Send + Sync>> {
     if !metrics.jvm_monitors.contains_key(pid) {
-        match JvmMonitor::connect(pid.parse()?) {
-            Ok(m) => {
-                metrics.jvm_monitors.insert(pid.clone(), m);
-            }
-            Err(e) => {
-                eprintln!("Failed to connect to JVM monitor for PID {}: {}", pid, e);
-            }
-        }
+        let parsed_pid = pid.parse()?;
+        let monitor = tokio::task::spawn_blocking(move || JvmMonitor::connect(parsed_pid))
+            .await
+            .map_err(|e| format!("JVM monitor connection task failed for PID {pid}: {e}"))?
+            .map_err(|e| format!("Failed to connect to JVM monitor for PID {pid}: {e}"))?;
+        metrics.jvm_monitors.insert(pid.clone(), monitor);
     }
 
     let mut results = HashMap::new();
 
-    if let Some(m) = metrics.jvm_monitors.get(pid) {
-        if m.read_string("sun.rt.javaCommand") == "-" {
+    // sample() validates the target identity, refreshes PerfData metadata, and
+    // returns all metric groups from one sampling cycle. The DashMap guard is
+    // dropped before a failed monitor is removed.
+    let sample_result = metrics
+        .jvm_monitors
+        .get(pid)
+        .map(|monitor| monitor.sample());
+    let snapshot = match sample_result {
+        Some(Ok(snapshot)) => snapshot,
+        Some(Err(e)) => {
             metrics.jvm_monitors.remove(pid);
-            return Err("JVM PerfData is stale, cache cleared".into());
+            return Err(format!("Failed to sample JVM monitor for PID {pid}: {e}").into());
         }
+        None => return Err(format!("JVM monitor missing for PID {pid}").into()),
+    };
 
-        if let Some(jstat_metrics) = metrics_map.get("-gc") {
-            let mut metric_names = HashSet::new();
-            let gc = m.get_gc_stats();
-            let mut update = |name: &str, val: f64| {
-                jstat_metrics
-                    .with_label_values(&[container, pid, process, name])
-                    .set(val);
-                metric_names.insert(name.to_string());
-            };
+    if let Some(jstat_metrics) = metrics_map.get("-gc") {
+        let mut metric_names = HashSet::new();
+        let gc = &snapshot.gc;
+        let mut update = |name: &str, val: f64| {
+            jstat_metrics
+                .with_label_values(&[container, pid, process, name])
+                .set(val);
+            metric_names.insert(name.to_string());
+        };
 
-            update("S0C", gc.s0c);
-            update("S1C", gc.s1c);
-            update("S0U", gc.s0u);
-            update("S1U", gc.s1u);
-            update("EC", gc.ec);
-            update("EU", gc.eu);
-            update("OC", gc.oc);
-            update("OU", gc.ou);
-            update("MC", gc.mc);
-            update("MU", gc.mu);
-            update("CCSC", gc.ccsc);
-            update("CCSU", gc.ccsu);
-            update("YGC", gc.ygc as f64);
-            update("YGCT", gc.ygct);
-            update("FGC", gc.fgc as f64);
-            update("FGCT", gc.fgct);
-            update("CGC", gc.cgc as f64);
-            update("CGCT", gc.cgct);
-            update("GCT", gc.gct);
+        update("S0C", gc.s0c);
+        update("S1C", gc.s1c);
+        update("S0U", gc.s0u);
+        update("S1U", gc.s1u);
+        update("EC", gc.ec);
+        update("EU", gc.eu);
+        update("OC", gc.oc);
+        update("OU", gc.ou);
+        update("MC", gc.mc);
+        update("MU", gc.mu);
+        update("CCSC", gc.ccsc);
+        update("CCSU", gc.ccsu);
+        update("YGC", gc.ygc as f64);
+        update("YGCT", gc.ygct);
+        update("FGC", gc.fgc as f64);
+        update("FGCT", gc.fgct);
+        update("CGC", gc.cgc as f64);
+        update("CGCT", gc.cgct);
+        update("GCT", gc.gct);
 
-            results.insert("-gc", metric_names);
-        }
+        results.insert("-gc", metric_names);
+    }
 
-        if let Some(jstat_metrics) = metrics_map.get("-class") {
-            let mut metric_names = HashSet::new();
-            let cs = m.get_class_stats();
-            let mut update = |name: &str, val: f64| {
-                jstat_metrics
-                    .with_label_values(&[container, pid, process, name])
-                    .set(val);
-                metric_names.insert(name.to_string());
-            };
-            update("Loaded", cs.loaded as f64);
-            update("BytesLoaded", cs.bytes);
-            update("Unloaded", cs.unloaded as f64);
-            update("BytesUnloaded", cs.unloaded_bytes);
-            update("Time", cs.time);
+    if let Some(jstat_metrics) = metrics_map.get("-class") {
+        let mut metric_names = HashSet::new();
+        let cs = &snapshot.classes;
+        let mut update = |name: &str, val: f64| {
+            jstat_metrics
+                .with_label_values(&[container, pid, process, name])
+                .set(val);
+            metric_names.insert(name.to_string());
+        };
+        update("Loaded", cs.loaded as f64);
+        update("BytesLoaded", cs.bytes);
+        update("Unloaded", cs.unloaded as f64);
+        update("BytesUnloaded", cs.unloaded_bytes);
+        update("Time", cs.time);
 
-            results.insert("-class", metric_names);
-        }
+        results.insert("-class", metric_names);
+    }
 
-        if let Some(jstat_metrics) = metrics_map.get("-compiler") {
-            let mut metric_names = HashSet::new();
-            let cps = m.get_compiler_stats();
-            let mut update = |name: &str, val: f64| {
-                jstat_metrics
-                    .with_label_values(&[container, pid, process, name])
-                    .set(val);
-                metric_names.insert(name.to_string());
-            };
-            update("Compiled", cps.compiled as f64);
-            update("Failed", cps.failed as f64);
-            update("Invalid", cps.invalid as f64);
-            update("Time", cps.time);
+    if let Some(jstat_metrics) = metrics_map.get("-compiler") {
+        let mut metric_names = HashSet::new();
+        let cps = &snapshot.compiler;
+        let mut update = |name: &str, val: f64| {
+            jstat_metrics
+                .with_label_values(&[container, pid, process, name])
+                .set(val);
+            metric_names.insert(name.to_string());
+        };
+        update("Compiled", cps.compiled as f64);
+        update("Failed", cps.failed as f64);
+        update("Invalid", cps.invalid as f64);
+        update("Time", cps.time);
 
-            results.insert("-compiler", metric_names);
-        }
+        results.insert("-compiler", metric_names);
+    }
 
-        if let Some(jstat_metrics) = metrics_map.get("-runtime") {
-            let mut metric_names = HashSet::new();
-            let rts = m.get_runtime_stats();
-            let mut update = |name: &str, val: f64| {
-                jstat_metrics
-                    .with_label_values(&[container, pid, process, name])
-                    .set(val);
-                metric_names.insert(name.to_string());
-            };
-            update("AppTimeSenconds", rts.app_time_s);
-            update("CodeCacheCapacity", rts.code_cache_capacity);
-            update("CodeCacheUsed", rts.code_cache_used);
-            update("CodeCacheUtilization", rts.code_cache_utilization);
-            update("SafepointOverhead", rts.safepoint_overhead);
-            update("SafepointTimeSeconds", rts.safepoint_time_s);
-            update("Safepoints", rts.safepoints as f64);
-            update("ThreadsDaemon", rts.threads_daemon as f64);
-            update("ThreadsLive", rts.threads_live as f64);
-            update("ThreadsPeak", rts.threads_peak as f64);
+    if let Some(jstat_metrics) = metrics_map.get("-runtime") {
+        let mut metric_names = HashSet::new();
+        let rts = &snapshot.runtime;
+        let mut update = |name: &str, val: f64| {
+            jstat_metrics
+                .with_label_values(&[container, pid, process, name])
+                .set(val);
+            metric_names.insert(name.to_string());
+        };
+        update("AppTimeSenconds", rts.app_time_s);
+        update("CodeCacheCapacity", rts.code_cache_capacity);
+        update("CodeCacheUsed", rts.code_cache_used);
+        update("CodeCacheUtilization", rts.code_cache_utilization);
+        update("SafepointOverhead", rts.safepoint_overhead);
+        update("SafepointTimeSeconds", rts.safepoint_time_s);
+        update("Safepoints", rts.safepoints as f64);
+        update("ThreadsDaemon", rts.threads_daemon as f64);
+        update("ThreadsLive", rts.threads_live as f64);
+        update("ThreadsPeak", rts.threads_peak as f64);
 
-            results.insert("-runtime", metric_names);
-        }
+        results.insert("-runtime", metric_names);
     }
 
     Ok(results)
@@ -948,8 +998,8 @@ async fn get_java_processes(
     let mut processes = HashMap::new();
 
     if container == "host" {
-        match JvmMonitor::discover_all() {
-            Ok(pis) => {
+        match tokio::task::spawn_blocking(JvmMonitor::discover_all).await {
+            Ok(Ok(pis)) => {
                 for p in pis {
                     let process_name = p.name;
                     let pid = p.pid;
@@ -972,9 +1022,13 @@ async fn get_java_processes(
                 }
                 return Ok(processes);
             }
-            Err(e) => {
-                warn!("Failed to discover Java processes using jmon_rs: {}. Falling back to jps command.", e);
+            Ok(Err(e)) => {
+                warn!("Failed to discover Java processes using jmon_rs: {}", e);
                 return Err(format!("Failed to discover Java processes for host: {:?}", e).into());
+            }
+            Err(e) => {
+                warn!("JVM discovery task failed: {}", e);
+                return Err(format!("JVM discovery task failed: {e}").into());
             }
         }
     } else {

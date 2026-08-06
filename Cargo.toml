@@ -37,7 +37,7 @@ rustls-pki-types = "0.1"
 x509-parser = "0.15"
 webpki-roots = "0.25"
 anyhow = "1.0"
-jmon-rs = "0.1.1"
+jmon-rs = "0.1.6"
 dashmap = "6.1.0" 
 
 [target.'cfg(unix)'.dependencies]

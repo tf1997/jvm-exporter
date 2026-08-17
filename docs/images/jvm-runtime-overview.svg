@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">ferris-watch JVM runtime dashboard preview</title>
+  <desc id="desc">Example JVM monitoring snapshot using ferris-watch GC and runtime metrics.</desc>
+  <style>
+    text { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f4f6f8; }
+    .muted { fill: #98a2ab; }
+    .label { fill: #aeb7bf; font-size: 13px; }
+    .metric { fill: #7f8a93; font-size: 11px; }
+    .value { font-size: 29px; font-weight: 650; }
+    .panel-title { font-size: 15px; font-weight: 600; }
+    .axis { fill: #7f8a93; font-size: 10px; }
+    .grid { stroke: #2b3035; stroke-width: 1; }
+  </style>
+  <rect width="1200" height="675" fill="#101214"/>
+  <rect x="0" y="0" width="1200" height="72" fill="#171a1d"/>
+  <rect x="0" y="71" width="1200" height="1" fill="#2a3035"/>
+  <text x="32" y="31" font-size="13" fill="#4ec9a5" font-weight="650">ferris-watch</text>
+  <text x="32" y="54" font-size="21" font-weight="650">JVM Runtime</text>
+  <rect x="824" y="19" width="156" height="34" rx="4" fill="#20252a" stroke="#343b42"/>
+  <text x="838" y="40" class="label">process: orders-api</text>
+  <rect x="992" y="19" width="108" height="34" rx="4" fill="#20252a" stroke="#343b42"/>
+  <text x="1007" y="40" class="label">pid: 18432</text>
+  <rect x="1114" y="24" width="54" height="24" rx="4" fill="#18372f"/>
+  <text x="1123" y="40" font-size="11" fill="#66d7b3" font-weight="650">DEMO</text>
+
+  <g>
+    <rect x="32" y="92" width="270" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="50" y="119" class="label">JVM online</text>
+    <text x="50" y="157" class="value" fill="#4ec9a5">3 / 3</text>
+    <text x="198" y="157" class="metric">process_online_status</text>
+  </g>
+  <g>
+    <rect x="320" y="92" width="270" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="338" y="119" class="label">Old generation</text>
+    <text x="338" y="157" class="value" fill="#f5a65b">64.2%</text>
+    <text x="450" y="157" class="metric">OU / OC</text>
+  </g>
+  <g>
+    <rect x="608" y="92" width="270" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="626" y="119" class="label">GC time</text>
+    <text x="626" y="157" class="value" fill="#64a8e8">1.8%</text>
+    <text x="727" y="157" class="metric">rate(YGCT | FGCT)</text>
+  </g>
+  <g>
+    <rect x="896" y="92" width="272" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="914" y="119" class="label">Live threads</text>
+    <text x="914" y="157" class="value" fill="#e5ce73">186</text>
+    <text x="993" y="157" class="metric">ThreadsLive</text>
+  </g>
+
+  <g>
+    <rect x="32" y="202" width="736" height="282" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="52" y="229" class="panel-title">Heap utilization</text>
+    <text x="52" y="249" class="metric">100 * jstat_gc_metrics{metric_name="OU"} / OC</text>
+    <line x1="72" y1="282" x2="744" y2="282" class="grid"/>
+    <line x1="72" y1="326" x2="744" y2="326" class="grid"/>
+    <line x1="72" y1="370" x2="744" y2="370" class="grid"/>
+    <line x1="72" y1="414" x2="744" y2="414" class="grid"/>
+    <text x="46" y="286" class="axis">100%</text>
+    <text x="52" y="330" class="axis">75%</text>
+    <text x="52" y="374" class="axis">50%</text>
+    <text x="52" y="418" class="axis">25%</text>
+    <path d="M72 394 L108 387 L144 377 L180 365 L216 352 L252 339 L288 323 L324 308 L360 294 L396 392 L432 378 L468 362 L504 345 L540 328 L576 311 L612 292 L648 380 L684 361 L720 347 L744 344 L744 438 L72 438 Z" fill="#f5a65b" opacity="0.12"/>
+    <polyline points="72,394 108,387 144,377 180,365 216,352 252,339 288,323 324,308 360,294 396,392 432,378 468,362 504,345 540,328 576,311 612,292 648,380 684,361 720,347 744,344" fill="none" stroke="#f5a65b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="744" cy="344" r="4" fill="#f5a65b"/>
+    <text x="72" y="461" class="axis">10:00</text>
+    <text x="382" y="461" class="axis">10:30</text>
+    <text x="708" y="461" class="axis">11:00</text>
+  </g>
+
+  <g>
+    <rect x="786" y="202" width="382" height="282" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="806" y="229" class="panel-title">Memory pools</text>
+    <text x="806" y="249" class="metric">jstat_gc_metrics usage / capacity</text>
+    <text x="806" y="286" class="label">Eden</text>
+    <rect x="902" y="273" width="220" height="16" rx="3" fill="#272c31"/>
+    <rect x="902" y="273" width="163" height="16" rx="3" fill="#64a8e8"/>
+    <text x="1135" y="286" class="axis">74%</text>
+    <text x="806" y="330" class="label">Survivor</text>
+    <rect x="902" y="317" width="220" height="16" rx="3" fill="#272c31"/>
+    <rect x="902" y="317" width="103" height="16" rx="3" fill="#4ec9a5"/>
+    <text x="1135" y="330" class="axis">47%</text>
+    <text x="806" y="374" class="label">Old gen</text>
+    <rect x="902" y="361" width="220" height="16" rx="3" fill="#272c31"/>
+    <rect x="902" y="361" width="141" height="16" rx="3" fill="#f5a65b"/>
+    <text x="1135" y="374" class="axis">64%</text>
+    <text x="806" y="418" class="label">Metaspace</text>
+    <rect x="902" y="405" width="220" height="16" rx="3" fill="#272c31"/>
+    <rect x="902" y="405" width="126" height="16" rx="3" fill="#e5ce73"/>
+    <text x="1135" y="418" class="axis">57%</text>
+    <text x="806" y="458" class="metric">EU/EC  S0U/S0C  OU/OC  MU/MC</text>
+  </g>
+
+  <g>
+    <rect x="32" y="502" width="1136" height="141" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="52" y="529" class="panel-title">Garbage collection activity</text>
+    <text x="52" y="549" class="metric">rate(jstat_gc_metrics{metric_name=~"YGC|FGC"}[5m])</text>
+    <line x1="420" y1="567" x2="1140" y2="567" class="grid"/>
+    <line x1="420" y1="603" x2="1140" y2="603" class="grid"/>
+    <polyline points="420,607 468,592 516,600 564,580 612,589 660,568 708,581 756,575 804,594 852,566 900,579 948,570 996,587 1044,572 1092,582 1140,569" fill="none" stroke="#64a8e8" stroke-width="2.5" stroke-linejoin="round"/>
+    <polyline points="420,612 468,612 516,612 564,612 612,609 660,612 708,612 756,612 804,612 852,609 900,612 948,612 996,612 1044,612 1092,612 1140,609" fill="none" stroke="#ef6b73" stroke-width="2"/>
+    <circle cx="66" cy="589" r="5" fill="#64a8e8"/>
+    <text x="80" y="594" class="label">Young GC</text>
+    <text x="178" y="594" font-size="18" font-weight="650" fill="#64a8e8">0.82/s</text>
+    <circle cx="66" cy="619" r="5" fill="#ef6b73"/>
+    <text x="80" y="624" class="label">Full GC</text>
+    <text x="178" y="624" font-size="18" font-weight="650" fill="#ef6b73">0.01/s</text>
+  </g>
+  <text x="1168" y="663" text-anchor="end" class="axis">Representative snapshot using ferris-watch metrics</text>
+</svg>

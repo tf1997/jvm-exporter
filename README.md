@@ -152,6 +152,25 @@ Grafana 10 or later:
 | Node Detail | [`grafana/ferris-watch-dashboard.json`](grafana/ferris-watch-dashboard.json) | Deep inspection of one Prometheus job and instance |
 | Fleet Overview | [`grafana/ferris-watch-fleet-dashboard.json`](grafana/ferris-watch-fleet-dashboard.json) | Comparison and health overview across all selected nodes |
 
+### Dashboard Previews
+
+The following representative snapshots use metric families and query semantics
+from the included dashboards. Values are example data for presentation rather
+than a production capture.
+
+**JVM runtime** - heap pools, GC activity, threads, and JVM availability.
+
+[![JVM runtime dashboard preview](docs/images/jvm-runtime-overview.svg)](grafana/ferris-watch-dashboard.json)
+
+**Host resources** - CPU, memory, swap, disk, uptime, and network throughput.
+
+[![Host resources dashboard preview](docs/images/host-resources-overview.svg)](grafana/ferris-watch-dashboard.json)
+
+**Processes and probes** - process resource usage plus TCP, ICMP, HTTP, and TLS
+health.
+
+[![Process and probe dashboard preview](docs/images/process-probes-overview.svg)](grafana/ferris-watch-fleet-dashboard.json)
+
 1. Add Prometheus as a Grafana datasource.
 2. Open **Dashboards > New > Import**.
 3. Upload either dashboard JSON file. Repeat the import for the second file.

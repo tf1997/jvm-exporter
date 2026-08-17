@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">ferris-watch host resources dashboard preview</title>
+  <desc id="desc">Example host monitoring snapshot using ferris-watch CPU, memory, disk, and network metrics.</desc>
+  <style>
+    text { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f4f6f8; }
+    .muted { fill: #98a2ab; }
+    .label { fill: #aeb7bf; font-size: 13px; }
+    .metric { fill: #7f8a93; font-size: 11px; }
+    .value { font-size: 29px; font-weight: 650; }
+    .panel-title { font-size: 15px; font-weight: 600; }
+    .axis { fill: #7f8a93; font-size: 10px; }
+    .grid { stroke: #2b3035; stroke-width: 1; }
+  </style>
+  <rect width="1200" height="675" fill="#101214"/>
+  <rect x="0" y="0" width="1200" height="72" fill="#171a1d"/>
+  <rect x="0" y="71" width="1200" height="1" fill="#2a3035"/>
+  <text x="32" y="31" font-size="13" fill="#4ec9a5" font-weight="650">ferris-watch</text>
+  <text x="32" y="54" font-size="21" font-weight="650">Host Resources</text>
+  <rect x="881" y="19" width="160" height="34" rx="4" fill="#20252a" stroke="#343b42"/>
+  <text x="896" y="40" class="label">instance: node-03</text>
+  <rect x="1054" y="19" width="46" height="34" rx="4" fill="#20252a" stroke="#343b42"/>
+  <text x="1069" y="40" class="label">1h</text>
+  <rect x="1114" y="24" width="54" height="24" rx="4" fill="#18372f"/>
+  <text x="1123" y="40" font-size="11" fill="#66d7b3" font-weight="650">DEMO</text>
+
+  <g>
+    <rect x="32" y="92" width="270" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="50" y="119" class="label">Average CPU</text>
+    <text x="50" y="157" class="value" fill="#64a8e8">37.8%</text>
+    <text x="169" y="157" class="metric">system_cpu_usage_percentage</text>
+  </g>
+  <g>
+    <rect x="320" y="92" width="270" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="338" y="119" class="label">Memory used</text>
+    <text x="338" y="157" class="value" fill="#4ec9a5">68.4%</text>
+    <text x="457" y="157" class="metric">used / total</text>
+  </g>
+  <g>
+    <rect x="608" y="92" width="270" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="626" y="119" class="label">Disk used</text>
+    <text x="626" y="157" class="value" fill="#f5a65b">54.1%</text>
+    <text x="743" y="157" class="metric">disk usage / total</text>
+  </g>
+  <g>
+    <rect x="896" y="92" width="272" height="92" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="914" y="119" class="label">System uptime</text>
+    <text x="914" y="157" class="value" fill="#e5ce73">41d 8h</text>
+    <text x="1030" y="157" class="metric">system_uptime_seconds</text>
+  </g>
+
+  <g>
+    <rect x="32" y="202" width="736" height="250" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="52" y="229" class="panel-title">CPU utilization by core</text>
+    <text x="52" y="249" class="metric">system_cpu_usage_percentage{cpu}</text>
+    <line x1="72" y1="278" x2="744" y2="278" class="grid"/>
+    <line x1="72" y1="322" x2="744" y2="322" class="grid"/>
+    <line x1="72" y1="366" x2="744" y2="366" class="grid"/>
+    <line x1="72" y1="410" x2="744" y2="410" class="grid"/>
+    <text x="46" y="282" class="axis">100%</text>
+    <text x="52" y="326" class="axis">67%</text>
+    <text x="52" y="370" class="axis">33%</text>
+    <text x="58" y="414" class="axis">0%</text>
+    <polyline points="72,379 114,365 156,372 198,344 240,355 282,329 324,341 366,310 408,337 450,326 492,350 534,318 576,332 618,306 660,340 702,319 744,328" fill="none" stroke="#64a8e8" stroke-width="2.5" stroke-linejoin="round"/>
+    <polyline points="72,392 114,381 156,354 198,371 240,362 282,378 324,351 366,366 408,342 450,359 492,337 534,354 576,339 618,362 660,349 702,371 744,355" fill="none" stroke="#4ec9a5" stroke-width="2.2" stroke-linejoin="round"/>
+    <polyline points="72,368 114,346 156,360 198,331 240,345 282,317 324,330 366,339 408,312 450,323 492,308 534,336 576,315 618,327 660,301 702,323 744,311" fill="none" stroke="#e5ce73" stroke-width="2.2" stroke-linejoin="round"/>
+    <circle cx="551" cy="231" r="4" fill="#64a8e8"/><text x="562" y="235" class="axis">cpu0</text>
+    <circle cx="607" cy="231" r="4" fill="#4ec9a5"/><text x="618" y="235" class="axis">cpu1</text>
+    <circle cx="663" cy="231" r="4" fill="#e5ce73"/><text x="674" y="235" class="axis">cpu2</text>
+    <text x="72" y="437" class="axis">10:00</text><text x="382" y="437" class="axis">10:30</text><text x="708" y="437" class="axis">11:00</text>
+  </g>
+
+  <g>
+    <rect x="786" y="202" width="382" height="250" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="806" y="229" class="panel-title">Memory and swap</text>
+    <text x="806" y="249" class="metric">system_memory_usage_bytes / total</text>
+    <line x1="806" y1="286" x2="1142" y2="286" class="grid"/>
+    <line x1="806" y1="338" x2="1142" y2="338" class="grid"/>
+    <line x1="806" y1="390" x2="1142" y2="390" class="grid"/>
+    <path d="M806 356 L830 350 L854 347 L878 352 L902 339 L926 335 L950 329 L974 332 L998 320 L1022 315 L1046 323 L1070 311 L1094 305 L1118 309 L1142 300 L1142 412 L806 412 Z" fill="#4ec9a5" opacity="0.15"/>
+    <polyline points="806,356 830,350 854,347 878,352 902,339 926,335 950,329 974,332 998,320 1022,315 1046,323 1070,311 1094,305 1118,309 1142,300" fill="none" stroke="#4ec9a5" stroke-width="2.5"/>
+    <polyline points="806,403 830,402 854,402 878,401 902,402 926,399 950,399 974,397 998,398 1022,397 1046,396 1070,397 1094,394 1118,395 1142,393" fill="none" stroke="#a47de8" stroke-width="2"/>
+    <circle cx="822" cy="430" r="4" fill="#4ec9a5"/><text x="833" y="434" class="axis">memory 10.9 GiB</text>
+    <circle cx="956" cy="430" r="4" fill="#a47de8"/><text x="967" y="434" class="axis">swap 0.6 GiB</text>
+  </g>
+
+  <g>
+    <rect x="32" y="470" width="736" height="173" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="52" y="497" class="panel-title">Network throughput</text>
+    <text x="52" y="517" class="metric">system_network_receive_bytes_per_sec / transmit_bytes_per_sec</text>
+    <line x1="300" y1="539" x2="744" y2="539" class="grid"/>
+    <line x1="300" y1="580" x2="744" y2="580" class="grid"/>
+    <line x1="300" y1="621" x2="744" y2="621" class="grid"/>
+    <polyline points="300,608 332,593 364,600 396,565 428,578 460,548 492,589 524,571 556,538 588,562 620,546 652,581 684,552 716,568 744,544" fill="none" stroke="#64a8e8" stroke-width="2.5"/>
+    <polyline points="300,620 332,613 364,616 396,601 428,607 460,594 492,611 524,604 556,588 588,600 620,592 652,607 684,596 716,603 744,590" fill="none" stroke="#f5a65b" stroke-width="2.3"/>
+    <circle cx="64" cy="563" r="5" fill="#64a8e8"/><text x="79" y="568" class="label">Receive</text><text x="162" y="568" font-size="18" font-weight="650" fill="#64a8e8">18.6 MiB/s</text>
+    <circle cx="64" cy="605" r="5" fill="#f5a65b"/><text x="79" y="610" class="label">Transmit</text><text x="162" y="610" font-size="18" font-weight="650" fill="#f5a65b">6.2 MiB/s</text>
+  </g>
+
+  <g>
+    <rect x="786" y="470" width="382" height="173" rx="6" fill="#191c1f" stroke="#2b3137"/>
+    <text x="806" y="497" class="panel-title">Disk utilization</text>
+    <text x="806" y="517" class="metric">system_disk_usage_bytes / total_disk_bytes</text>
+    <text x="806" y="551" class="label">/</text><rect x="884" y="539" width="222" height="14" rx="3" fill="#272c31"/><rect x="884" y="539" width="120" height="14" rx="3" fill="#4ec9a5"/><text x="1120" y="551" class="axis">54%</text>
+    <text x="806" y="586" class="label">/data</text><rect x="884" y="574" width="222" height="14" rx="3" fill="#272c31"/><rect x="884" y="574" width="164" height="14" rx="3" fill="#f5a65b"/><text x="1120" y="586" class="axis">74%</text>
+    <text x="806" y="621" class="label">/logs</text><rect x="884" y="609" width="222" height="14" rx="3" fill="#272c31"/><rect x="884" y="609" width="91" height="14" rx="3" fill="#64a8e8"/><text x="1120" y="621" class="axis">41%</text>
+  </g>
+  <text x="1168" y="663" text-anchor="end" class="axis">Representative snapshot using ferris-watch metrics</text>
+</svg>
